@@ -120,6 +120,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .offer .save{color:#b91c1c;font-weight:700}
 .offer .contact{margin-top:14px;font-size:.85rem;color:#475569;border-top:1px solid #e2e8f0;padding-top:10px}
 .offer button{color:#12263a}.offer .primary{color:var(--tealtx)}
+.bcard{border:2px dashed rgba(18,38,58,.35)}.bcard .kick{letter-spacing:.12em;font-weight:800;font-size:.7rem;color:var(--amber)}
+.blist{margin:2px 0 6px;padding-left:18px}.bcard .was{text-decoration:line-through;color:var(--muted);font-size:.9rem}.bcard .save{color:var(--red);font-weight:700;font-size:.9rem}
 .about dl{display:grid;grid-template-columns:140px 1fr;gap:8px 14px;margin:0}.about dt{color:var(--muted)}.about dd{margin:0}
 </style>
 </head>
@@ -158,7 +160,7 @@ const ICON = {
   info:'<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5h.01"/>'
 };
 const MENU = {
-  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["orders","Orders","cart"],["about","About us","info"]],
+  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["bundles","Bundles","grid"],["orders","Orders","cart"],["about","About us","info"]],
   customer: [["order","Order","cart"],["my-orders","My Orders","list"],["about","About us","info"]]
 };
 
@@ -169,6 +171,7 @@ try { C = await import("./cloud.js"); } catch (e) { C = null; }
 let user = null, role = null, profile = null;
 let products = [], discount = {type:"percent", value:0}, about = {}, orders = [];
 let cart = {}, bundleName = "", note = "";
+let bundles = [], activeDisc = null, bform = null; // saved bundles, discount of the chosen bundle, admin bundle form
 let subs = [], dirty = false, tab = "customer", regMode = false;
 
 const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
@@ -180,8 +183,8 @@ const sortedOrders = () => [...orders].sort((a, b) => ts(b) - ts(a));
 function totals(){
   let sub = 0, count = 0;
   for (const p of products){ const q = cart[p.id] || 0; sub += q * p.price; count += q; }
-  const v = Math.max(0, discount.value || 0);
-  const disc = discount.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  const d = curDisc(), v = Math.max(0, d.value || 0);
+  const disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
   return {sub, count, disc, final: sub - disc};
 }
 // ---------- stock check (nothing is deducted here; stock only changes when an order is marked Ready) ----------
@@ -200,7 +203,8 @@ const STOCK_MSG = {
 };
 const lineMsg = l => l.state === "bad" ? `Only ${l.p.stock} in stock` : l.state === "low" ? `Only ${l.left} left after this` : "";
 
-const discLabel = () => discount.type === "percent" ? discount.value + "% off" : fmt(discount.value) + " off";
+const curDisc = () => activeDisc || discount;
+const discLabel = () => { const d = curDisc(); return d.type === "percent" ? d.value + "% off" : fmt(d.value) + " off"; };
 
 // ---------- login / register ----------
 function renderAuth(){
@@ -246,13 +250,14 @@ async function doRegister(){
 // ---------- session ----------
 async function handleUser(u){
   subs.forEach(f => f()); subs = []; user = u;
-  if (!u){ role = null; profile = null; products = []; orders = []; cart = {}; show("auth"); renderAuth(); return; }
+  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; activeDisc = null; show("auth"); renderAuth(); return; }
   try { role = (await C.isAdmin(u.uid)) ? "admin" : "customer"; if (!profile) profile = await C.getProfile(u.uid); }
   catch (e) { role = "customer"; }
   subs.push(
     C.watchProducts(l => { products = l; for (const id in cart){ const p = products.find(x => x.id == id); if (!p || p.stock <= 0) delete cart[id]; } refresh(); }),
     C.watchDiscount(d => { discount = d || {type:"percent", value:0}; refresh(); }),
     C.watchAbout(a => { about = a || {}; refresh(); }),
+    C.watchBundles(l => { bundles = l.sort((a, b) => a.id.localeCompare(b.id)); refresh(); }),
     role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); })
   );
   $("whoName").textContent = profile?.name || u.email;
@@ -334,6 +339,36 @@ function pgProducts(){
     : '<p class="muted">No items yet. Add one above, or load a few samples.</p><button data-act="seed">Load sample items</button>'}</section>`;
 }
 
+// ---------- saved bundles (e.g. Back to School, Summer) ----------
+function bundleCalc(b){
+  const items = (b.items || []).map(i => ({p: prod(i.id), qty: i.qty})).filter(x => x.p);
+  const sub = items.reduce((t, x) => t + x.p.price * x.qty, 0);
+  const d = b.value > 0 ? {type: b.type, value: b.value} : discount, v = Math.max(0, d.value || 0);
+  const disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  const bad = items.filter(x => x.p.stock < x.qty), low = items.filter(x => x.p.stock >= x.qty && x.p.stock - x.qty <= LOW);
+  return {items, sub, disc, final: sub - disc, state: bad.length ? "bad" : low.length ? "low" : "ok", bad};
+}
+const bundleCard = b => { const c = bundleCalc(b), m = STOCK_MSG[c.state];
+  return `<div class="prod bcard"><span class="kick">SPECIAL BUNDLE OFFER</span><b style="font-size:1.1rem">${esc(b.name)}</b>
+    <ul class="blist">${c.items.map(x => `<li>${x.qty} ${esc(x.p.name)}</li>`).join("")}</ul>
+    ${c.disc > 0 ? `<span class="was">Regular price: ${fmt(c.sub)}</span><span class="save">Save ${fmt(c.disc)}</span>` : ""}<span class="price">${fmt(c.final)}</span>
+    <span class="sbadge ${c.state}">${m[0]}${c.state === "bad" ? " · " + c.bad.map(x => esc(x.p.name)).join(", ") : ""}</span>
+    <button class="primary" data-act="usebundle" data-id="${esc(b.id)}" ${c.state === "bad" || !c.items.length ? "disabled" : ""}>Use this bundle</button></div>`; };
+const bundleSection = () => bundles.length ? `<section class="card"><h2>Ready-made bundles</h2><p class="muted" style="margin-top:0">Pick one, then change the items if you like.</p><div class="grid">${bundles.map(bundleCard).join("")}</div></section>` : "";
+
+function pgBundles(){
+  const f = bform;
+  const form = f ? `<section class="card stack"><h2>${f.id ? "Edit bundle" : "New bundle"}</h2>
+    <div><label for="bfn">Bundle name</label><input id="bfn" value="${esc(f.name)}" placeholder="e.g. Back to School, Summer"></div>
+    <div class="disc"><div><label for="bft">Promo discount type</label><select id="bft"><option value="percent" ${f.type === "percent" ? "selected" : ""}>Percent (%)</option><option value="fixed" ${f.type === "fixed" ? "selected" : ""}>Fixed amount</option></select></div>
+    <div><label for="bfv">Promo discount (0 = use the store discount)</label><input id="bfv" type="number" min="0" step="0.01" value="${f.value}"></div><span></span></div>
+    <div><label>Items in this bundle (quantity, 0 = not included)</label>${products.map(p => `<div class="line"><span>${esc(p.name)} <span class="muted">${fmt(p.price)}</span></span><input data-bq="${p.id}" type="number" min="0" step="1" value="${f.qty[p.id] || 0}" style="width:80px" aria-label="Quantity of ${esc(p.name)}"></div>`).join("") || '<p class="muted">Add products first.</p>'}</div>
+    <div class="acts"><button class="primary" data-act="savebundle">Save bundle</button><button data-act="cancelbundle">Cancel</button></div></section>`
+    : `<div class="acts" style="margin-bottom:14px"><button class="primary" data-act="newbundle">+ New bundle</button>${bundles.length ? "" : '<button data-act="seedbundles">Load sample bundles</button>'}</div>`;
+  return `<h1>Bundles</h1><p class="muted">Make as many promo bundles as you like (Back to School, Summer, ...). Customers see them on the Order page.</p>${form}
+  ${bundles.length ? `<div class="grid">${bundles.map(b => bundleCard(b).replace(/<button class="primary" data-act="usebundle"[^>]*>Use this bundle<\/button>/, `<div class="acts"><button data-act="editbundle" data-id="${esc(b.id)}">Edit</button><button class="danger" data-act="delbundle" data-id="${esc(b.id)}">Delete</button></div>`)).join("")}</div>` : '<p class="muted">No bundles yet.</p>'}`;
+}
+
 const stockBanner = () => { const sc = stockCheck(); if (!sc.lines.length) return "";
   return `<div class="chk ${sc.state}" role="status"><b>${STOCK_MSG[sc.state][0]}</b>${sc.state === "bad" ? `Selected quantity exceeds available stock for ${sc.bad.map(l => esc(l.p.name)).join(", ")}.` : sc.state === "low" ? `${STOCK_MSG.low[1]} (${sc.low.map(l => esc(l.p.name)).join(", ")})` : STOCK_MSG.ok[1]}</div>`; };
 const cardWarn = p => { const q = cart[p.id] || 0, left = p.stock - q;
@@ -354,10 +389,10 @@ function panelHtml(){
   <label for="note">Note / special request</label><textarea id="note">${esc(note)}</textarea>
   <div class="acts"><button class="primary" data-act="place" ${!t.count || !sc.canFulfil ? "disabled" : ""}>Place pre-order</button><button data-act="summary" ${!t.count ? "disabled" : ""}>Customer summary</button><button data-act="clearcart">Clear</button></div>`;
 }
-const pgOrder = () => `<h1>Order</h1><div id="sbanner">${stockBanner()}</div><div class="two"><div><div class="grid" id="pgrid">${products.length ? products.map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
-const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); } };
+const pgOrder = () => `<h1>Order</h1><div id="bundlesec">${bundleSection()}</div><div id="sbanner">${stockBanner()}</div><div class="two"><div><div class="grid" id="pgrid">${products.length ? products.map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
+const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); if ($("bundlesec")) $("bundlesec").innerHTML = bundleSection(); } };
 
-const PAGES = {dashboard: pgDashboard, products: pgProducts, orders: pgOrders, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
+const PAGES = {dashboard: pgDashboard, products: pgProducts, bundles: pgBundles, orders: pgOrders, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
 
 // ---------- actions ----------
 function toDataUrl(file, max = 320){
@@ -384,7 +419,7 @@ async function place(){
   const items = products.filter(p => cart[p.id]).map(p => ({id: p.id, name: p.name, price: p.price, qty: cart[p.id], subtotal: p.price * cart[p.id]}));
   const short = items.find(i => i.qty > (prod(i.id)?.stock ?? 0)); if (short){ flash("Insufficient stock: " + short.name + " (only " + (prod(short.id)?.stock ?? 0) + " left)."); return; }
   await C.placeOrder({uid: user.uid, customerName: profile?.name || user.email, items, bundleName: bundleName.trim(), note: note.trim(), subtotal: t.sub, discount: t.disc, discountLabel: discLabel(), total: t.final, status: "Pending"});
-  cart = {}; bundleName = ""; note = ""; flash("Order placed! Track it in My Orders."); location.hash = "my-orders";
+  cart = {}; activeDisc = null; bundleName = ""; note = ""; flash("Order placed! Track it in My Orders."); location.hash = "my-orders";
 }
 async function addProd(){
   const name = $("nn").value.trim(), price = parseFloat($("np").value), stock = parseInt($("ns").value, 10);
@@ -428,6 +463,25 @@ const ACT = {
     const m = document.createElement("div"); m.id = "sumModal"; m.innerHTML = offerHtml(); document.body.appendChild(m);
   },
   closesum: () => $("sumModal")?.remove(),
+  usebundle: el => { const b = bundles.find(x => x.id === el.dataset.id); if (!b) return; const c = bundleCalc(b);
+    if (c.state === "bad"){ flash("Insufficient stock: " + c.bad.map(x => x.p.name).join(", ")); return; }
+    cart = {}; c.items.forEach(x => cart[x.p.id] = x.qty); bundleName = b.name; activeDisc = b.value > 0 ? {type: b.type, value: b.value} : null;
+    flash(b.name + " added. You can still change the items."); renderOrderParts(); },
+  newbundle: () => { bform = {id: "", name: "", type: "percent", value: 0, qty: {}}; route(); },
+  cancelbundle: () => { bform = null; route(); },
+  editbundle: el => { const b = bundles.find(x => x.id === el.dataset.id); bform = {id: b.id, name: b.name, type: b.type || "percent", value: b.value || 0, qty: Object.fromEntries((b.items || []).map(i => [i.id, i.qty]))}; route(); window.scrollTo(0, 0); },
+  savebundle: guard(async () => {
+    const name = bform.name.trim(), items = Object.entries(bform.qty).filter(([, q]) => q > 0).map(([id, qty]) => ({id: +id, qty}));
+    if (!name || !items.length){ flash("Enter a name and at least one item."); return; }
+    if (bform.type === "percent" && bform.value > 100){ flash("Percent cannot be over 100."); return; }
+    await C.setBundle({id: bform.id || "bundle_" + Date.now(), name, type: bform.type, value: bform.value, items});
+    flash(name + " saved."); bform = null; route();
+  }),
+  delbundle: guard(el => confirm("Delete this bundle?") && C.removeBundle(el.dataset.id)),
+  seedbundles: guard(async () => {
+    await C.setBundle({id: "bundle_1", name: "Back-to-School Essentials", type: "fixed", value: 55, items: [{id:1, qty:1}, {id:2, qty:1}, {id:3, qty:1}]});
+    await C.setBundle({id: "bundle_2", name: "Summer Bundle", type: "percent", value: 10, items: [{id:4, qty:1}, {id:5, qty:1}]});
+  }),
   copysum: async () => { flash(await copyText(offerText()) ? "Summary copied. Paste it in a message." : "Could not copy. Please try again."); },
   tab: el => { tab = el.dataset.t; regMode = false; renderAuth(); },
   toreg: () => { regMode = true; renderAuth(); }, tolog: () => { regMode = false; renderAuth(); },
@@ -435,7 +489,7 @@ const ACT = {
   add: el => { const p = prod(el.dataset.id); if (!p || p.stock <= 0){ flash("Out of stock."); return; } if ((cart[p.id] || 0) >= p.stock){ flash("Insufficient stock: only " + p.stock + " " + p.name + " available."); renderOrderParts(); return; } cart[p.id] = (cart[p.id] || 0) + 1; if (p.stock - cart[p.id] <= LOW) flash("Low stock: only " + (p.stock - cart[p.id]) + " " + p.name + " left."); renderOrderParts(); },
   inc: el => ACT.add(el),
   dec: el => { const id = el.dataset.id; cart[id] = (cart[id] || 0) - 1; if (cart[id] <= 0) delete cart[id]; renderOrderParts(); },
-  clearcart: () => { cart = {}; bundleName = ""; note = ""; renderOrderParts(); },
+  clearcart: () => { cart = {}; activeDisc = null; bundleName = ""; note = ""; renderOrderParts(); },
   place: guard(place),
   status: guard(el => setStatus(orders.find(o => o.id === el.dataset.id), el.dataset.s)),
   delorder: guard(el => confirm("Delete this order?") && C.removeOrder(el.dataset.id)),
@@ -459,7 +513,8 @@ document.addEventListener("click", e => {
   if (el.tagName === "A") e.preventDefault();
   ACT[el.dataset.act]?.(el);
 });
-document.addEventListener("input", e => { if (e.target.id === "bn") bundleName = e.target.value; if (e.target.id === "note") note = e.target.value; });
+document.addEventListener("input", e => { const t = e.target; if (bform){ if (t.id === "bfn") bform.name = t.value; if (t.id === "bft") bform.type = t.value; if (t.id === "bfv") bform.value = Math.max(0, parseFloat(t.value) || 0); if (t.dataset.bq) bform.qty[t.dataset.bq] = Math.max(0, parseInt(t.value, 10) || 0); }
+  if (e.target.id === "bn") bundleName = e.target.value; if (e.target.id === "note") note = e.target.value; });
 document.addEventListener("keydown", e => { if (e.key === "Enter" && !regMode && ["lemail", "lpw"].includes(e.target.id)) doLogin(); });
 document.addEventListener("change", guard(async e => {
   const t = e.target;
