@@ -25,10 +25,11 @@ const ICON = {
   users:'<circle cx="6" cy="5" r="2.5"/><path d="M1.5 13.5c0-2.6 2-4 4.5-4s4.5 1.4 4.5 4"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M12 9.3c1.8.2 2.8 1.4 2.8 3.4"/>',
   trophy:'<path d="M5 2h6v4a3 3 0 01-6 0V2zM5 3.5H2.5V4A2.5 2.5 0 005 6.5M11 3.5h2.5V4A2.5 2.5 0 0111 6.5M8 9v3M5 14h6"/>',
   chart:'<path d="M2 2v12h12M5 11V8M8 11V5M11 11V7"/>',
+  tag:'<path d="M2 2h6l6 6-6 6-6-6V2z"/><circle cx="5.2" cy="5.2" r="1"/>',
   chat:'<path d="M2 3h12v8H7l-3 3v-3H2V3z"/>'
 };
 const MENU = {
-  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["bundles","Bundles","grid"],["orders","Orders","cart"],["analytics","Analytics","chart"],["chat","Chat","chat"],["about","About us","info"]],
+  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["categories","Categories","tag"],["bundles","Bundles","grid"],["orders","Orders","cart"],["analytics","Analytics","chart"],["chat","Chat","chat"],["about","About us","info"]],
   customer: [["order","Order","cart"],["my-orders","My Orders","list"],["about","About us","info"]]
 };
 
@@ -42,9 +43,10 @@ let cart = {}, bundleName = "", note = "";
 let bundles = [], activeDisc = null, bform = null, cartBundles = {}; // saved bundles, discount of the chosen bundle, admin bundle form
 const MODE = document.body.dataset.mode === "admin" ? "admin" : "customer"; // which page this is: index.html or admin.html
 let subs = [], dirty = false, regMode = false, authNote = "";
+let categories = [], catFilter = "all"; // product categories (admin manages them, customers browse them)
 let customers = [], chats = [], selChat = null, selMsgs = [], threadUnsub = null; // admin: customer accounts, chat threads, open thread
 let chatMsgs = [], myChat = null, chatOpen = false; // customer: own chat messages and thread info
-let aRange = 30, mRange = 6; // analytics: date range in days (0 = all time), months shown on the revenue chart
+let aRange = 30; // analytics: date range in days (0 = all time). The monthly chart follows it.
 
 const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
 const show = w => { $("boot").hidden = true; $("auth").hidden = w !== "auth"; $("app").hidden = w !== "app"; };
@@ -129,7 +131,7 @@ async function doRegister(){
 // ---------- session ----------
 async function handleUser(u){
   subs.forEach(f => f()); subs = []; threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; user = u;
-  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; cartBundles = {}; activeDisc = null; customers = []; chats = []; chatMsgs = []; myChat = null; chatOpen = false; $("cw")?.remove(); show("auth"); renderAuth(); return; }
+  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; categories = []; catFilter = "all"; cart = {}; cartBundles = {}; activeDisc = null; customers = []; chats = []; seenPend = null; seenUnread = null; chatMsgs = []; myChat = null; chatOpen = false; $("cw")?.remove(); show("auth"); renderAuth(); return; }
   try { role = (await C.isAdmin(u.uid)) ? "admin" : "customer"; if (!profile) profile = await C.getProfile(u.uid); }
   catch (e) { role = "customer"; }
   if (role !== MODE){ // keep the two logins separate: admins only on admin.html, customers only on index.html
@@ -138,6 +140,7 @@ async function handleUser(u){
   }
   subs.push(
     C.watchProducts(l => { products = l; for (const id in cart){ const p = products.find(x => x.id == id); if (!p || p.stock <= 0) delete cart[id]; } refresh(); }),
+    C.watchCategories(l => { categories = l.sort((a, b) => (a.order || 0) - (b.order || 0) || a.id.localeCompare(b.id)); refresh(); }),
     C.watchDiscount(d => { discount = d || {type:"percent", value:0}; refresh(); }),
     C.watchAbout(a => { about = a || {}; refresh(); }),
     C.watchBundles(l => { bundles = l.sort((a, b) => a.id.localeCompare(b.id)); for (const id in cartBundles) if (!bundles.find(b => b.id === id)) delete cartBundles[id]; refresh(); }),
@@ -158,10 +161,17 @@ async function handleUser(u){
 
 // ---------- navigation ----------
 const current = () => { const m = MENU[role].map(x => x[0]); const r = location.hash.slice(1); return m.includes(r) ? r : m[0]; };
+let seenPend = null, seenUnread = null; // last counts, so a toast shows only when something NEW arrives
 function nav(){
   const pend = role === "admin" ? orders.filter(o => o.status === "Pending").length : 0, cur = current();
   const unread = role === "admin" ? chats.reduce((n, c) => n + (c.adminUnread || 0), 0) : 0;
-  const link = ([id, label, ic]) => `<a href="#${id}" class="${cur===id?"on":""}"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[ic]}</svg>${label}${id==="orders" && pend ? `<span class="nb">${pend}</span>` : ""}${id==="chat" && unread ? `<span class="nb">${unread}</span>` : ""}</a>`;
+  if (role === "admin"){
+    if (seenPend !== null && pend > seenPend) flash("New order received");
+    if (seenUnread !== null && unread > seenUnread && cur !== "chat") flash("New message from a customer");
+    seenPend = pend; seenUnread = unread;
+    document.title = (pend + unread ? "(" + (pend + unread) + ") " : "") + "Bundle Wise Admin";
+  }
+  const link = ([id, label, ic]) => `<a href="#${id}" class="${cur===id?"on":""}"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[ic]}</svg>${label}${id==="orders" && pend ? `<span class="nb ping" title="${pend} new order(s)">${pend}</span>` : ""}${id==="chat" && unread ? `<span class="nb ping" title="${unread} unread message(s)">${unread}</span>` : ""}</a>`;
   const html = MENU[role].map(link).join("");
   $("side").innerHTML = html; $("bottom").innerHTML = html;
 }
@@ -223,17 +233,42 @@ function pgProducts(){
     <button class="primary" data-act="savedisc">Save discount</button></div></section>
   <section class="card"><h2>Add a new item</h2>
     <div class="add"><div><label for="nn">Name</label><input id="nn" placeholder="e.g. Highlighter"></div><div><label for="np">Price</label><input id="np" type="number" min="0" step="0.01"></div>
-    <div><label for="ns">Starting stock</label><input id="ns" type="number" min="0" step="1"></div><div><label for="nf">Photo (optional)</label><input id="nf" type="file" accept="image/*"></div>
+    <div><label for="ns">Starting stock</label><input id="ns" type="number" min="0" step="1"></div><div><label for="nc">Category</label><select id="nc">${catOptions("")}</select></div><div><label for="nf">Photo (optional)</label><input id="nf" type="file" accept="image/*"></div>
     <button class="primary" data-act="addprod">Add item</button></div></section>
   <section class="card"><h2>Inventory</h2>
     ${products.length ? `<div class="row head"><span>Photo</span><span>Name</span><span>Price</span><span>Stock</span><span></span></div>` + products.map(p => `<div class="row">
       <div class="pic"><div class="thumb">${p.img ? `<img src="${esc(p.img)}" alt="">` : esc(p.em || "📦")}</div>
         <label>${p.img ? "Change photo" : "Add photo"}<input type="file" accept="image/*" data-pic="${p.id}" aria-label="Photo for ${esc(p.name)}"></label>${p.img ? `<button data-act="rmpic" data-id="${p.id}">Remove</button>` : ""}</div>
-      <input data-f="name" data-id="${p.id}" value="${esc(p.name)}" aria-label="Name">
+      <div><input data-f="name" data-id="${p.id}" value="${esc(p.name)}" aria-label="Name"><select data-f="cat" data-id="${p.id}" aria-label="Category of ${esc(p.name)}" style="margin-top:4px">${catOptions(p.cat || "")}</select></div>
       <input data-f="price" data-id="${p.id}" type="number" min="0" step="0.01" value="${p.price}" aria-label="Price of ${esc(p.name)}">
       <div><div class="stockcell"><input data-f="stock" data-id="${p.id}" type="number" min="0" step="1" value="${p.stock}" aria-label="Stock of ${esc(p.name)}"><button data-act="addstock" data-n="1" data-id="${p.id}">+1</button><button data-act="addstock" data-n="10" data-id="${p.id}">+10</button></div>${badge(p.stock)}</div>
       <div><button class="danger" data-act="delprod" data-id="${p.id}">Delete</button></div></div>`).join("")
     : '<p class="muted">No items yet. Add one above, or load a few samples.</p><button data-act="seed">Load sample items</button>'}</section>`;
+}
+
+// ---------- product categories ----------
+const catOf = id => categories.find(c => c.id === id);
+const catPic = c => c.img ? `<img src="${esc(c.img)}" alt="">` : esc(c.em || "🏷️");
+// customers only see products whose category is active (products without a category are always shown)
+const shownProducts = () => products.filter(p => !p.cat || !catOf(p.cat) || catOf(p.cat).active !== false)
+  .filter(p => catFilter === "all" || p.cat === catFilter);
+const catBar = () => { const act = categories.filter(c => c.active !== false); if (!act.length) return "";
+  if (catFilter !== "all" && !act.find(c => c.id === catFilter)) catFilter = "all";
+  return `<div class="catbar" role="tablist" aria-label="Categories"><button class="chip ${catFilter === "all" ? "on" : ""}" data-act="catfilter" data-id="all"><span class="cp">🛍️</span>All</button>${act.map(c => `<button class="chip ${catFilter === c.id ? "on" : ""}" data-act="catfilter" data-id="${esc(c.id)}"><span class="cp">${catPic(c)}</span>${esc(c.name)}</button>`).join("")}</div>`; };
+const catOptions = sel => `<option value="">No category</option>${categories.map(c => `<option value="${esc(c.id)}" ${sel === c.id ? "selected" : ""}>${esc(c.name)}${c.active === false ? " (inactive)" : ""}</option>`).join("")}`;
+const DEFAULT_CATS = [["School Supplies","📚"],["Bags & Backpacks","🎒"],["Writing Tools","🖊️"],["Notebooks & Paper","📓"],["Art & Crafts","🎨"],["Calculators & Gadgets","🧮"],["Drinkware & Lunch","🍱"],["Office Supplies","🗂️"],["Uniforms & Accessories","👕"],["Others","📦"]];
+function pgCategories(){
+  const n = id => products.filter(p => p.cat === id).length;
+  return `<h1>Product Categories</h1><p class="muted">Add, rename, hide or delete categories. Customers see every change right away.</p>
+  <section class="card"><h2>Add a category</h2>
+    <div class="add catadd"><div><label for="cn">Category name</label><input id="cn" placeholder="e.g. Art & Crafts"></div><div><label for="cf">Logo or picture (optional)</label><input id="cf" type="file" accept="image/*"></div><button class="primary" data-act="addcat">Add category</button></div>
+    ${categories.length ? "" : '<p class="muted" style="margin-bottom:8px">Or start with a ready-made set of 10 categories.</p><button data-act="seedcats">Load 10 default categories</button>'}</section>
+  <section class="card"><h2>All categories (${categories.length})</h2>
+    ${categories.length ? categories.map(c => `<div class="catrow ${c.active === false ? "off" : ""}">
+      <div class="pic"><div class="thumb">${catPic(c)}</div><label>${c.img ? "Change picture" : "Add picture"}<input type="file" accept="image/*" data-cpic="${esc(c.id)}" aria-label="Picture for ${esc(c.name)}"></label>${c.img ? `<button data-act="rmcpic" data-id="${esc(c.id)}">Remove</button>` : ""}</div>
+      <div><input data-cname="${esc(c.id)}" value="${esc(c.name)}" aria-label="Category name"><small class="muted">${n(c.id)} product${n(c.id) === 1 ? "" : "s"}</small></div>
+      <label class="switch"><input type="checkbox" data-cact="${esc(c.id)}" ${c.active !== false ? "checked" : ""}><span>${c.active !== false ? "Active" : "Inactive"}</span></label>
+      <button class="danger" data-act="delcat" data-id="${esc(c.id)}">Delete</button></div>`).join("") : '<p class="muted">No categories yet.</p>'}</section>`;
 }
 
 // ---------- saved bundles (e.g. Back to School, Summer) ----------
@@ -291,8 +326,8 @@ function panelHtml(){
   <label for="note">Note / special request</label><textarea id="note">${esc(note)}</textarea>
   <div class="acts"><button class="primary" data-act="place" ${!t.count || !sc.canFulfil ? "disabled" : ""}>Place pre-order</button><button data-act="summary" ${!t.count ? "disabled" : ""}>Customer summary</button><button data-act="clearcart">Clear</button></div>`;
 }
-const pgOrder = () => `<h1>Order</h1><div id="bundlesec">${bundleSection()}</div><div id="sbanner">${stockBanner()}</div><div class="two"><div><div class="grid" id="pgrid">${products.length ? products.map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
-const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); if ($("bundlesec")) $("bundlesec").innerHTML = bundleSection(); } };
+const pgOrder = () => `<h1>Order</h1><div id="bundlesec">${bundleSection()}</div><div id="sbanner">${stockBanner()}</div><div id="catbar">${catBar()}</div><div class="two"><div><div class="grid" id="pgrid">${shownProducts().length ? shownProducts().map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
+const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = shownProducts().map(prodCard).join("") || '<p class="muted">No products in this category yet.</p>'; if ($("catbar")) $("catbar").innerHTML = catBar(); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); if ($("bundlesec")) $("bundlesec").innerHTML = bundleSection(); } };
 
 // ---------- reports and analytics (admin) ----------
 const DAY = 864e5, RANGES = [[7, "1 week"], [30, "1 month"], [365, "12 months"]]; // date range choices, in this order
@@ -336,7 +371,7 @@ function pgAnalytics(){
   // bundles
   const top = sold(cur), best = top[0], imgOf = r => bundles.find(b => b.id === r.id)?.img;
   // monthly revenue
-  const d0 = new Date(), ms = [];
+  const d0 = new Date(), ms = [], mRange = !aRange || aRange >= 365 ? 12 : aRange >= 30 ? 6 : 3; // months shown follow the date range
   for (let i = mRange - 1; i >= 0; i--){ const a = new Date(d0.getFullYear(), d0.getMonth() - i, 1), b = new Date(d0.getFullYear(), d0.getMonth() - i + 1, 1);
     ms.push({label: a.toLocaleDateString(undefined, {month: "short"}), full: a.toLocaleDateString(undefined, {month: "long", year: "numeric"}), value: sum(between(all, +a, +b), o => o.total)}); }
   // fair comparison: this month so far vs the same days of last month (a half-finished month would always look like a drop)
@@ -356,7 +391,7 @@ function pgAnalytics(){
     <div class="card kpi">${bigIc("trophy")}<div><span class="muted">Best-Selling Bundle</span><div class="kv"><b class="bn">${best ? esc(best.name) : "–"}</b></div><small class="muted">${best ? best.qty.toLocaleString() + " sold" : "No sales yet"}</small></div></div>
   </div>
   <div class="an-grid">
-    <section class="card"><div class="cardhead"><h2>Monthly Revenue Monitoring</h2><select id="mrange" style="width:auto" aria-label="Months shown">${[[6, "Last 6 months"], [12, "Last 12 months"]].map(([v, l]) => `<option value="${v}" ${mRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <section class="card"><div class="cardhead"><h2>Monthly Revenue Monitoring</h2><small class="muted">Last ${mRange} months</small></div>
       <div class="kv"><b class="big">${fmt(thisM)}</b>${delta(thisM, lastM)}</div><small class="muted">${ms[ms.length - 1].full} so far, vs the same days last month</small>
       <div class="chartbox">${trendChart(ms)}</div></section>
     <section class="card"><div class="cardhead"><h2>Top Performing Bundles</h2><small class="muted">${rangeName}</small></div>
@@ -410,7 +445,7 @@ function renderCW(){
   if (chatOpen && n > 0) C.markChatRead(user.uid, "customer");
 }
 
-const PAGES = {dashboard: pgDashboard, products: pgProducts, bundles: pgBundles, orders: pgOrders, analytics: pgAnalytics, chat: pgChat, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
+const PAGES = {dashboard: pgDashboard, products: pgProducts, categories: pgCategories, bundles: pgBundles, orders: pgOrders, analytics: pgAnalytics, chat: pgChat, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
 
 // ---------- actions ----------
 function toDataUrl(file, max = 320){
@@ -449,6 +484,7 @@ async function addProd(){
   const name = $("nn").value.trim(), price = parseFloat($("np").value), stock = parseInt($("ns").value, 10);
   if (!name || isNaN(price) || price < 0 || isNaN(stock) || stock < 0){ flash("Enter a name, a price and a starting stock."); return; }
   const item = {id: Date.now(), name, price, stock, em: "📦"}, file = $("nf").files[0];
+  if ($("nc")?.value) item.cat = $("nc").value;
   if (file){ try { item.img = await toDataUrl(file); } catch (e) { flash("Photo could not be used. Item added without it."); } }
   await C.setProduct(item); flash(name + " added.");
 }
@@ -553,6 +589,25 @@ const ACT = {
   delprod: guard(el => { const p = prod(el.dataset.id); return confirm("Delete " + p.name + "?") && C.removeProduct(p.id); }),
   rmpic: guard(el => { const {img, ...p} = prod(el.dataset.id); return C.setProduct(p); }),
   seed: guard(async () => { for (const p of SEED) await C.setProduct(p); }),
+  catfilter: el => { catFilter = el.dataset.id; renderOrderParts(); },
+  addcat: guard(async () => {
+    const name = $("cn").value.trim(), file = $("cf").files[0];
+    if (!name){ flash("Enter a category name."); return; }
+    if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())){ flash("That category already exists."); return; }
+    const c = {id: "category_" + Date.now(), name, active: true, order: Date.now()};
+    if (file){ try { c.img = await toDataUrl(file, 200); } catch (e) { flash("Picture could not be used. Category added without it."); } }
+    await C.setCategory(c); flash(name + " added."); }),
+  seedcats: guard(async () => {
+    const stamp = Date.now(), made = [];
+    for (let i = 0; i < DEFAULT_CATS.length; i++){ const c = {id: "category_" + (stamp + i), name: DEFAULT_CATS[i][0], em: DEFAULT_CATS[i][1], active: true, order: stamp + i}; made.push(c); await C.setCategory(c); }
+    const guess = {"notebook": "Notebooks & Paper", "ballpen set": "Writing Tools", "backpack": "Bags & Backpacks", "water bottle": "Drinkware & Lunch", "lunch box": "Drinkware & Lunch", "calculator": "Calculators & Gadgets"};
+    for (const p of products){ const c = !p.cat && made.find(m => m.name === guess[p.name.toLowerCase()]); if (c) await C.setProduct({...p, cat: c.id}); }
+    flash("10 categories added."); }),
+  rmcpic: guard(el => { const {img, ...c} = catOf(el.dataset.id); return C.setCategory(c); }),
+  delcat: guard(async el => { const c = catOf(el.dataset.id), used = products.filter(p => p.cat === c.id);
+    if (!confirm("Delete " + c.name + "?" + (used.length ? " Its " + used.length + " product(s) will become uncategorized." : ""))) return;
+    for (const p of used){ const {cat, ...rest} = p; await C.setProduct(rest); }
+    await C.removeCategory(c.id); flash(c.name + " deleted."); }),
   savedisc: guard(async () => {
     const type = $("dtype").value, value = parseFloat($("dval").value);
     if (isNaN(value) || value < 0 || (type === "percent" && value > 100)){ flash("Enter a valid discount."); return; }
@@ -575,8 +630,14 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && !regMode &&
 document.addEventListener("change", guard(async e => {
   const t = e.target;
   if (t.id === "arange"){ aRange = +t.value; route(); return; }
-  if (t.id === "mrange"){ mRange = +t.value; route(); return; }
+  if (t.dataset.cname){ const c = catOf(t.dataset.cname), name = t.value.trim();
+    if (!name){ t.value = c.name; flash("A category needs a name."); return; }
+    if (categories.some(x => x.id !== c.id && x.name.toLowerCase() === name.toLowerCase())){ t.value = c.name; flash("That name is already used."); return; }
+    await C.setCategory({...c, name}); flash("Renamed."); return; }
+  if (t.dataset.cact){ const c = catOf(t.dataset.cact); await C.setCategory({...c, active: t.checked}); flash(c.name + (t.checked ? " is now visible to customers." : " is now hidden from customers.")); return; }
+  if (t.dataset.cpic && t.files[0]){ const c = catOf(t.dataset.cpic); try { await C.setCategory({...c, img: await toDataUrl(t.files[0], 200)}); } catch (e) { flash("Picture could not be used."); } return; }
   if (t.dataset.f){ const p = prod(t.dataset.id); let v = t.value;
+    if (t.dataset.f === "cat"){ const {cat, ...rest} = p; await C.setProduct(v ? {...rest, cat: v} : rest); return; }
     if (t.dataset.f === "price") v = Math.max(0, parseFloat(v) || 0); else if (t.dataset.f === "stock") v = Math.max(0, parseInt(v, 10) || 0); else v = v.trim() || p.name;
     await C.setProduct({...p, [t.dataset.f]: v}); }
   else if (t.dataset.bpic && t.files[0] && bform){ try { bform.img = await toDataUrl(t.files[0], 480); route(); } catch (e) { flash("Photo could not be used."); } }

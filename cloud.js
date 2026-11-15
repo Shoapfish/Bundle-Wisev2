@@ -19,6 +19,7 @@ export const watchProducts = cb => onSnapshot(collection(db, "products"), s => c
 export const watchDiscount = cb => onSnapshot(doc(db, "settings", "discount"), s => cb(s.exists() ? s.data() : null), err);
 export const watchAbout = cb => onSnapshot(doc(db, "settings", "about"), s => cb(s.exists() ? s.data() : null), err);
 export const watchBundles = cb => onSnapshot(collection(db, "settings"), s => cb(s.docs.filter(d => d.id.startsWith("bundle_")).map(d => ({ ...d.data(), id: d.id }))), err);
+export const watchCategories = cb => onSnapshot(collection(db, "settings"), s => cb(s.docs.filter(d => d.id.startsWith("category_")).map(d => ({ ...d.data(), id: d.id }))), err);
 export const watchAllOrders = cb => onSnapshot(collection(db, "orders"), s => cb(s.docs.map(withId)), err);
 export const watchMyOrders = (uid, cb) => onSnapshot(query(collection(db, "orders"), where("uid", "==", uid)), s => cb(s.docs.map(withId)), err);
 
@@ -27,6 +28,8 @@ export const setProduct = p => setDoc(doc(db, "products", String(p.id)), p);
 export const removeProduct = id => deleteDoc(doc(db, "products", String(id)));
 export const setBundle = b => setDoc(doc(db, "settings", b.id), b);
 export const removeBundle = id => deleteDoc(doc(db, "settings", id));
+export const setCategory = c => setDoc(doc(db, "settings", c.id), c);
+export const removeCategory = id => deleteDoc(doc(db, "settings", id));
 export const setDiscount = d => setDoc(doc(db, "settings", "discount"), d);
 export const setAbout = a => setDoc(doc(db, "settings", "about"), a);
 export const updateOrder = (id, patch) => updateDoc(doc(db, "orders", id), patch);
