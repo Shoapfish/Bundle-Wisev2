@@ -171,7 +171,7 @@ try { C = await import("./cloud.js"); } catch (e) { C = null; }
 let user = null, role = null, profile = null;
 let products = [], discount = {type:"percent", value:0}, about = {}, orders = [];
 let cart = {}, bundleName = "", note = "";
-let bundles = [], activeDisc = null, bform = null; // saved bundles, discount of the chosen bundle, admin bundle form
+let bundles = [], activeDisc = null, bform = null, cartBundles = {}; // saved bundles, discount of the chosen bundle, admin bundle form
 let subs = [], dirty = false, tab = "customer", regMode = false;
 
 const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
@@ -184,13 +184,20 @@ function totals(){
   let sub = 0, count = 0;
   for (const p of products){ const q = cart[p.id] || 0; sub += q * p.price; count += q; }
   const d = curDisc(), v = Math.max(0, d.value || 0);
-  const disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  let disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  for (const [id, q] of Object.entries(cartBundles)){ const b = bundles.find(x => x.id === id); if (!b) continue; const c = bundleCalc(b);
+    sub += c.sub * q; disc += c.disc * q; count += c.items.reduce((n, x) => n + x.qty, 0) * q; }
   return {sub, count, disc, final: sub - disc};
 }
+const need = id => { let n = cart[id] || 0; for (const [bid, q] of Object.entries(cartBundles)){ const it = bundles.find(x => x.id === bid)?.items?.find(i => i.id == id); if (it) n += it.qty * q; } return n; };
+const needed = () => products.filter(p => need(p.id) > 0);
+const hasLoose = () => products.some(p => cart[p.id] > 0), hasBundles = () => Object.keys(cartBundles).length > 0;
+const discText = () => hasBundles() ? (hasLoose() ? "store + bundle promo" : "bundle promo") : discLabel();
+const titleName = () => bundleName.trim() || (Object.keys(cartBundles).length === 1 && !hasLoose() ? (bundles.find(b => b.id === Object.keys(cartBundles)[0])?.name || "Bundle Deal") : "Bundle Deal");
 // ---------- stock check (nothing is deducted here; stock only changes when an order is marked Ready) ----------
 function stockCheck(){
-  const lines = products.filter(p => cart[p.id]).map(p => {
-    const q = cart[p.id], left = p.stock - q;
+  const lines = needed().map(p => {
+    const q = need(p.id), left = p.stock - q;
     return {p, q, left, state: left < 0 ? "bad" : left <= LOW ? "low" : "ok"};
   });
   const bad = lines.filter(l => l.state === "bad"), low = lines.filter(l => l.state === "low");
@@ -250,14 +257,14 @@ async function doRegister(){
 // ---------- session ----------
 async function handleUser(u){
   subs.forEach(f => f()); subs = []; user = u;
-  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; activeDisc = null; show("auth"); renderAuth(); return; }
+  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; cartBundles = {}; activeDisc = null; show("auth"); renderAuth(); return; }
   try { role = (await C.isAdmin(u.uid)) ? "admin" : "customer"; if (!profile) profile = await C.getProfile(u.uid); }
   catch (e) { role = "customer"; }
   subs.push(
     C.watchProducts(l => { products = l; for (const id in cart){ const p = products.find(x => x.id == id); if (!p || p.stock <= 0) delete cart[id]; } refresh(); }),
     C.watchDiscount(d => { discount = d || {type:"percent", value:0}; refresh(); }),
     C.watchAbout(a => { about = a || {}; refresh(); }),
-    C.watchBundles(l => { bundles = l.sort((a, b) => a.id.localeCompare(b.id)); refresh(); }),
+    C.watchBundles(l => { bundles = l.sort((a, b) => a.id.localeCompare(b.id)); for (const id in cartBundles) if (!bundles.find(b => b.id === id)) delete cartBundles[id]; refresh(); }),
     role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); })
   );
   $("whoName").textContent = profile?.name || u.email;
@@ -285,7 +292,8 @@ document.addEventListener("focusout", () => { if (dirty) setTimeout(() => { dirt
 
 // ---------- pages ----------
 const stat = (label, n) => `<div class="stat"><span class="muted">${label}</span><b>${n}</b></div>`;
-const itemsText = o => (o.items || []).map(i => `${i.qty} × ${esc(i.name)}`).join(", ");
+const itemsText = o => [...(o.bundles || []).map(b => `${b.qty} × ${esc(b.name)}`), ...(o.items || []).filter(i => !i.bundle).map(i => `${i.qty} × ${esc(i.name)}`)].join(", ");
+const orderLines = o => (o.bundles || []).map(b => `<li><span><b>${b.qty} × ${esc(b.name)}</b><br><small class="muted">Includes: ${(b.items || []).map(x => x.qty * b.qty + " " + esc(x.name)).join(", ")}</small></span><span>${fmt(b.price * b.qty)}</span></li>`).join("") + (o.items || []).filter(i => !i.bundle).map(i => `<li><span>${i.qty} × ${esc(i.name)}</span><span>${fmt(i.subtotal)}</span></li>`).join("");
 
 function pgDashboard(){
   const low = products.filter(p => p.stock > 0 && p.stock <= LOW), out = products.filter(p => p.stock <= 0);
@@ -300,9 +308,9 @@ function pgDashboard(){
 
 function orderCard(o, admin){
   return `<article class="card"><div class="cardhead"><div><b>${esc(o.customerName)}</b><div class="muted">${when(o)}</div></div><span class="st ${esc(o.status)}">${esc(o.status)}</span></div>
-    <ul class="lines">${(o.items || []).map(i => `<li><span>${i.qty} × ${esc(i.name)}</span><span>${fmt(i.subtotal)}</span></li>`).join("")}</ul>
+    <ul class="lines">${orderLines(o)}</ul>
     ${o.bundleName ? `<div class="muted">Bundle: ${esc(o.bundleName)}</div>` : ""}${o.note ? `<div class="muted">Note: ${esc(o.note)}</div>` : ""}
-    ${o.discount > 0 ? `<div class="sum save"><span>Bundle discount (${esc(o.discountLabel)})</span><span>-${fmt(o.discount)}</span></div>` : ""}
+    ${o.discount > 0 ? `<div class="sum save"><span>Discount (${esc(o.discountLabel)})</span><span>-${fmt(o.discount)}</span></div>` : ""}
     <div class="sum"><b>Total</b><b>${fmt(o.total)}</b></div>
     ${admin ? `<div class="acts">${[["Preparing","Preparing"],["Ready","Ready"],["Completed","Complete"],["Cancelled","Cancel"]].map(([s, l]) => `<button data-act="status" data-id="${o.id}" data-s="${s}" ${o.status===s?"disabled":""}>${l}</button>`).join("")}<button class="danger" data-act="delorder" data-id="${o.id}">Delete</button></div>` : ""}</article>`;
 }
@@ -344,12 +352,12 @@ function bundleCalc(b){
   const items = (b.items || []).map(i => ({p: prod(i.id), qty: i.qty})).filter(x => x.p);
   const sub = items.reduce((t, x) => t + x.p.price * x.qty, 0);
   const d = b.value > 0 ? {type: b.type, value: b.value} : discount, v = Math.max(0, d.value || 0);
-  const disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  let disc = d.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
   const bad = items.filter(x => x.p.stock < x.qty), low = items.filter(x => x.p.stock >= x.qty && x.p.stock - x.qty <= LOW);
   return {items, sub, disc, final: sub - disc, state: bad.length ? "bad" : low.length ? "low" : "ok", bad};
 }
 const bundleCard = b => { const c = bundleCalc(b), m = STOCK_MSG[c.state];
-  return `<div class="prod bcard"><span class="kick">SPECIAL BUNDLE OFFER</span><b style="font-size:1.1rem">${esc(b.name)}</b>
+  return `<div class="prod bcard">${b.img ? `<img class="pimg" src="${esc(b.img)}" alt="" loading="lazy">` : ""}<span class="kick">SPECIAL BUNDLE OFFER</span><b style="font-size:1.1rem">${esc(b.name)}</b>
     <ul class="blist">${c.items.map(x => `<li>${x.qty} ${esc(x.p.name)}</li>`).join("")}</ul>
     ${c.disc > 0 ? `<span class="was">Regular price: ${fmt(c.sub)}</span><span class="save">Save ${fmt(c.disc)}</span>` : ""}<span class="price">${fmt(c.final)}</span>
     <span class="sbadge ${c.state}">${m[0]}${c.state === "bad" ? " · " + c.bad.map(x => esc(x.p.name)).join(", ") : ""}</span>
@@ -360,6 +368,7 @@ function pgBundles(){
   const f = bform;
   const form = f ? `<section class="card stack"><h2>${f.id ? "Edit bundle" : "New bundle"}</h2>
     <div><label for="bfn">Bundle name</label><input id="bfn" value="${esc(f.name)}" placeholder="e.g. Back to School, Summer"></div>
+    <div class="pic"><div class="thumb">${f.img ? `<img src="${esc(f.img)}" alt="">` : "🎁"}</div><label>${f.img ? "Change photo" : "Add photo"}<input type="file" accept="image/*" data-bpic="1" aria-label="Bundle photo"></label>${f.img ? '<button data-act="rmbpic">Remove</button>' : ""}</div>
     <div class="disc"><div><label for="bft">Promo discount type</label><select id="bft"><option value="percent" ${f.type === "percent" ? "selected" : ""}>Percent (%)</option><option value="fixed" ${f.type === "fixed" ? "selected" : ""}>Fixed amount</option></select></div>
     <div><label for="bfv">Promo discount (0 = use the store discount)</label><input id="bfv" type="number" min="0" step="0.01" value="${f.value}"></div><span></span></div>
     <div><label>Items in this bundle (quantity, 0 = not included)</label>${products.map(p => `<div class="line"><span>${esc(p.name)} <span class="muted">${fmt(p.price)}</span></span><input data-bq="${p.id}" type="number" min="0" step="1" value="${f.qty[p.id] || 0}" style="width:80px" aria-label="Quantity of ${esc(p.name)}"></div>`).join("") || '<p class="muted">Add products first.</p>'}</div>
@@ -371,21 +380,25 @@ function pgBundles(){
 
 const stockBanner = () => { const sc = stockCheck(); if (!sc.lines.length) return "";
   return `<div class="chk ${sc.state}" role="status"><b>${STOCK_MSG[sc.state][0]}</b>${sc.state === "bad" ? `Selected quantity exceeds available stock for ${sc.bad.map(l => esc(l.p.name)).join(", ")}.` : sc.state === "low" ? `${STOCK_MSG.low[1]} (${sc.low.map(l => esc(l.p.name)).join(", ")})` : STOCK_MSG.ok[1]}</div>`; };
-const cardWarn = p => { const q = cart[p.id] || 0, left = p.stock - q;
+const cardWarn = p => { const q = need(p.id), left = p.stock - q;
   if (p.stock <= 0) return ""; if (q && left < 0) return `<span class="sbadge bad">Insufficient stock · only ${p.stock} available</span>`;
   if (left <= LOW) return `<span class="sbadge low">Low stock · ${left} left</span>`; return ""; };
-const prodCard = p => { const left = p.stock - (cart[p.id] || 0);
+const prodCard = p => { const left = p.stock - need(p.id);
   return `<div class="prod">${p.img ? `<img class="pimg" src="${esc(p.img)}" alt="" loading="lazy">` : `<span class="em" aria-hidden="true">${esc(p.em || "📦")}</span>`}<b>${esc(p.name)}</b><span class="price">${fmt(p.price)}</span><span class="meta">${p.stock<=0 ? "Out of stock" : left<=0 ? "No more available" : left + " in stock"}</span>${cardWarn(p)}<button data-act="add" data-id="${p.id}" ${left<=0?"disabled":""}>Add to bundle</button></div>`; };
 function panelHtml(){
-  const t = totals(), ls = products.filter(p => cart[p.id]), sc = stockCheck();
+  const t = totals(), ls = products.filter(p => cart[p.id]), sc = stockCheck(), cb = Object.entries(cartBundles).map(([id, q]) => ({b: bundles.find(x => x.id === id), q})).filter(x => x.b);
+  const bundleLine = ({b, q}) => { const c = bundleCalc(b), badNames = c.items.filter(x => sc.bad.some(l => l.p.id === x.p.id)).map(x => esc(x.p.name));
+    return `<li><span><b>${esc(b.name)}</b><br><small class="muted">Includes: ${c.items.map(x => x.qty + " " + esc(x.p.name)).join(", ")}</small>${badNames.length ? `<br><small class="sbadge bad">Insufficient stock · ${badNames.join(", ")}</small>` : ""}</span>
+    <span class="qty"><button data-act="bdec" data-id="${esc(b.id)}" aria-label="Remove one ${esc(b.name)}">−</button><span>${q}</span><button data-act="binc" data-id="${esc(b.id)}" aria-label="Add one ${esc(b.name)}">+</button></span><b>${fmt(c.final * q)}</b></li>`; };
+  const looseLine = p => `<li><span>${esc(p.name)}<br><small class="muted">${fmt(p.price)} each</small>${(() => { const l = sc.lines.find(x => x.p.id === p.id); return l && l.state !== "ok" ? `<br><small class="sbadge ${l.state}">${STOCK_MSG[l.state][0]} · ${lineMsg(l)}</small>` : ""; })()}</span>
+    <span class="qty"><button data-act="dec" data-id="${p.id}" aria-label="Remove one ${esc(p.name)}">−</button><span>${cart[p.id]}</span><button data-act="inc" data-id="${p.id}" aria-label="Add one ${esc(p.name)}" ${need(p.id)>=p.stock?"disabled":""}>+</button></span><b>${fmt(cart[p.id]*p.price)}</b></li>`;
   return `<h2>Your bundle</h2><div class="muted" style="margin-bottom:8px">Ordering as ${esc(profile?.name || user.email)}</div>
   <label for="bn">Bundle name (optional)</label><input id="bn" value="${esc(bundleName)}" placeholder="e.g. Back-to-school pack" style="margin-bottom:12px">
-  <ul class="items">${ls.length ? ls.map(p => `<li><span>${esc(p.name)}<br><small class="muted">${fmt(p.price)} each</small>${(() => { const l = sc.lines.find(x => x.p.id === p.id); return l && l.state !== "ok" ? `<br><small class="sbadge ${l.state}">${STOCK_MSG[l.state][0]} · ${lineMsg(l)}</small>` : ""; })()}</span>
-    <span class="qty"><button data-act="dec" data-id="${p.id}" aria-label="Remove one ${esc(p.name)}">−</button><span>${cart[p.id]}</span><button data-act="inc" data-id="${p.id}" aria-label="Add one ${esc(p.name)}" ${cart[p.id]>=p.stock?"disabled":""}>+</button></span><b>${fmt(cart[p.id]*p.price)}</b></li>`).join("") : '<li class="muted" style="display:block">Your bundle is empty. Add products from the list.</li>'}</ul>
+  <ul class="items">${cb.length || ls.length ? cb.map(bundleLine).join("") + ls.map(looseLine).join("") : '<li class="muted" style="display:block">Your bundle is empty. Pick a ready-made bundle or add products.</li>'}</ul>
   ${sc.lines.length ? `<div class="chk ${sc.state}" role="status"><b>${STOCK_MSG[sc.state][0]}</b>${sc.state === "bad" ? `Selected quantity exceeds available stock for ${sc.bad.map(l => esc(l.p.name)).join(", ")}.` : STOCK_MSG[sc.state][1]}<small>Stock is only deducted when an order is processed, not while you build a bundle.</small></div>` : ""}
-  <div class="sum"><span>Items</span><span>${t.count}</span></div><div class="sum"><span>Subtotal</span><span>${fmt(t.sub)}</span></div>
-  <div class="sum save"><span>${t.disc > 0 ? "Bundle discount (" + esc(discLabel()) + ")" : "Bundle discount"}</span><span>-${fmt(t.disc)}</span></div>
-  <div class="tag"><div><small>Final bundle price</small><small>${t.disc > 0 ? "You save " + fmt(t.disc) : ""}</small></div><div class="price">${fmt(t.final)}</div></div>
+  ${ls.length ? `<div class="sum"><span>Items</span><span>${t.count}</span></div><div class="sum"><span>Subtotal</span><span>${fmt(t.sub)}</span></div>
+  <div class="sum save"><span>${t.disc > 0 ? "Discount (" + esc(discText()) + ")" : "Discount"}</span><span>-${fmt(t.disc)}</span></div>` : ""}
+  <div class="tag"><div><small>${cb.length && !ls.length ? "Bundle price" : "Final bundle price"}</small><small>${t.disc > 0 ? "You save " + fmt(t.disc) : ""}</small></div><div class="price">${fmt(t.final)}</div></div>
   <label for="note">Note / special request</label><textarea id="note">${esc(note)}</textarea>
   <div class="acts"><button class="primary" data-act="place" ${!t.count || !sc.canFulfil ? "disabled" : ""}>Place pre-order</button><button data-act="summary" ${!t.count ? "disabled" : ""}>Customer summary</button><button data-act="clearcart">Clear</button></div>`;
 }
@@ -410,16 +423,21 @@ const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { consol
 
 async function setStatus(o, s){
   const patch = {status: s};
-  if (s === "Ready" && !o.deducted){ for (const i of o.items){ const p = prod(i.id); if (p) await C.setProduct({...p, stock: Math.max(0, p.stock - i.qty)}); } patch.deducted = true; }
-  if (s === "Cancelled" && o.deducted){ for (const i of o.items){ const p = prod(i.id); if (p) await C.setProduct({...p, stock: p.stock + i.qty}); } patch.deducted = false; }
+  const tot = {}; for (const i of o.items || []) tot[i.id] = (tot[i.id] || 0) + i.qty;
+  if (s === "Ready" && !o.deducted){ for (const id in tot){ const p = prod(id); if (p) await C.setProduct({...p, stock: Math.max(0, p.stock - tot[id])}); } patch.deducted = true; }
+  if (s === "Cancelled" && o.deducted){ for (const id in tot){ const p = prod(id); if (p) await C.setProduct({...p, stock: p.stock + tot[id]}); } patch.deducted = false; }
   await C.updateOrder(o.id, patch);
 }
 async function place(){
   const t = totals(); if (!t.count){ flash("Add at least one product first."); return; }
+  const short = needed().find(p => need(p.id) > p.stock); if (short){ flash("Insufficient stock: " + short.name + " (only " + short.stock + " left)."); return; }
   const items = products.filter(p => cart[p.id]).map(p => ({id: p.id, name: p.name, price: p.price, qty: cart[p.id], subtotal: p.price * cart[p.id]}));
-  const short = items.find(i => i.qty > (prod(i.id)?.stock ?? 0)); if (short){ flash("Insufficient stock: " + short.name + " (only " + (prod(short.id)?.stock ?? 0) + " left)."); return; }
-  await C.placeOrder({uid: user.uid, customerName: profile?.name || user.email, items, bundleName: bundleName.trim(), note: note.trim(), subtotal: t.sub, discount: t.disc, discountLabel: discLabel(), total: t.final, status: "Pending"});
-  cart = {}; activeDisc = null; bundleName = ""; note = ""; flash("Order placed! Track it in My Orders."); location.hash = "my-orders";
+  const bl = [];
+  for (const [id, q] of Object.entries(cartBundles)){ const b = bundles.find(x => x.id === id); if (!b) continue; const c = bundleCalc(b);
+    bl.push({id, name: b.name, qty: q, regular: c.sub, price: c.final, items: c.items.map(x => ({name: x.p.name, qty: x.qty}))});
+    c.items.forEach(x => items.push({id: x.p.id, name: x.p.name, price: 0, qty: x.qty * q, subtotal: 0, bundle: b.name})); }
+  await C.placeOrder({uid: user.uid, customerName: profile?.name || user.email, items, bundles: bl, bundleName: bundleName.trim(), note: note.trim(), subtotal: t.sub, discount: t.disc, discountLabel: discText(), total: t.final, status: "Pending"});
+  cart = {}; cartBundles = {}; activeDisc = null; bundleName = ""; note = ""; flash("Order placed! Track it in My Orders."); location.hash = "my-orders";
 }
 async function addProd(){
   const name = $("nn").value.trim(), price = parseFloat($("np").value), stock = parseInt($("ns").value, 10);
@@ -430,22 +448,22 @@ async function addProd(){
 }
 
 function offerText(){
-  const t = totals(), ls = products.filter(p => cart[p.id]);
+  const t = totals(), ls = needed();
   const strike = str => [...str].map(c => c + "\u0336").join("");
-  const out = ["SPECIAL BUNDLE OFFER", bundleName.trim() || "Bundle Deal", "", "What's included?"];
-  ls.forEach(p => out.push(`• ${cart[p.id]} ${p.name}`));
+  const out = ["SPECIAL BUNDLE OFFER", titleName(), "", "What's included?"];
+  ls.forEach(p => out.push(`• ${need(p.id)} ${p.name}`));
   out.push("");
-  if (t.disc > 0){ out.push("Regular price: " + strike(fmt(t.sub))); out.push("Save " + fmt(t.disc) + " (" + discLabel() + ")"); }
+  if (t.disc > 0){ out.push("Regular price: " + strike(fmt(t.sub))); out.push("Save " + fmt(t.disc)); }
   out.push("Bundle price: " + fmt(t.final));
   const c = [about.contact && "Contact: " + about.contact, about.facebookPage && "Facebook: " + about.facebookPage].filter(Boolean);
   if (c.length) out.push("", ...c);
   return out.join("\n");
 }
 function offerHtml(){
-  const t = totals(), ls = products.filter(p => cart[p.id]);
-  return `<div class="offer" role="dialog" aria-modal="true" aria-label="Customer-ready bundle summary"><div class="kick">SPECIAL BUNDLE OFFER</div><h3>${esc(bundleName.trim() || "Bundle Deal")}</h3>
-    <b>What's included?</b><ul>${ls.map(p => `<li>${cart[p.id]} ${esc(p.name)}</li>`).join("")}</ul>
-    ${t.disc > 0 ? `<div class="was">Regular price: ${fmt(t.sub)}</div><div class="save">Save ${fmt(t.disc)} (${esc(discLabel())})</div>` : ""}
+  const t = totals(), ls = needed();
+  return `<div class="offer" role="dialog" aria-modal="true" aria-label="Customer-ready bundle summary"><div class="kick">SPECIAL BUNDLE OFFER</div><h3>${esc(titleName())}</h3>
+    <b>What's included?</b><ul>${ls.map(p => `<li>${need(p.id)} ${esc(p.name)}</li>`).join("")}</ul>
+    ${t.disc > 0 ? `<div class="was">Regular price: ${fmt(t.sub)}</div><div class="save">Save ${fmt(t.disc)}</div>` : ""}
     <div class="now">${fmt(t.final)}</div>
     ${about.contact || about.facebookPage ? `<div class="contact">${about.contact ? "Contact: " + esc(about.contact) + "<br>" : ""}${about.facebookPage ? "Facebook: " + esc(about.facebookPage) : ""}</div>` : ""}
     <div class="acts"><button class="primary" data-act="copysum">Copy to send</button><button data-act="closesum">Close</button></div></div>`;
@@ -463,18 +481,21 @@ const ACT = {
     const m = document.createElement("div"); m.id = "sumModal"; m.innerHTML = offerHtml(); document.body.appendChild(m);
   },
   closesum: () => $("sumModal")?.remove(),
-  usebundle: el => { const b = bundles.find(x => x.id === el.dataset.id); if (!b) return; const c = bundleCalc(b);
-    if (c.state === "bad"){ flash("Insufficient stock: " + c.bad.map(x => x.p.name).join(", ")); return; }
-    cart = {}; c.items.forEach(x => cart[x.p.id] = x.qty); bundleName = b.name; activeDisc = b.value > 0 ? {type: b.type, value: b.value} : null;
-    flash(b.name + " added. You can still change the items."); renderOrderParts(); },
-  newbundle: () => { bform = {id: "", name: "", type: "percent", value: 0, qty: {}}; route(); },
+  usebundle: el => { const b = bundles.find(x => x.id === el.dataset.id); if (!b) return;
+    const bad = (b.items || []).map(i => ({p: prod(i.id), qty: i.qty})).filter(x => x.p && need(x.p.id) + x.qty > x.p.stock);
+    if (bad.length){ flash("Insufficient stock: " + bad.map(x => x.p.name).join(", ")); return; }
+    cartBundles[b.id] = (cartBundles[b.id] || 0) + 1; flash(b.name + " added to your order."); renderOrderParts(); },
+  binc: el => ACT.usebundle(el),
+  bdec: el => { const id = el.dataset.id; cartBundles[id] = (cartBundles[id] || 0) - 1; if (cartBundles[id] <= 0) delete cartBundles[id]; renderOrderParts(); },
+  newbundle: () => { bform = {id: "", name: "", type: "percent", value: 0, qty: {}, img: ""}; route(); },
+  rmbpic: () => { bform.img = ""; route(); },
   cancelbundle: () => { bform = null; route(); },
-  editbundle: el => { const b = bundles.find(x => x.id === el.dataset.id); bform = {id: b.id, name: b.name, type: b.type || "percent", value: b.value || 0, qty: Object.fromEntries((b.items || []).map(i => [i.id, i.qty]))}; route(); window.scrollTo(0, 0); },
+  editbundle: el => { const b = bundles.find(x => x.id === el.dataset.id); bform = {id: b.id, name: b.name, type: b.type || "percent", value: b.value || 0, img: b.img || "", qty: Object.fromEntries((b.items || []).map(i => [i.id, i.qty]))}; route(); window.scrollTo(0, 0); },
   savebundle: guard(async () => {
     const name = bform.name.trim(), items = Object.entries(bform.qty).filter(([, q]) => q > 0).map(([id, qty]) => ({id: +id, qty}));
     if (!name || !items.length){ flash("Enter a name and at least one item."); return; }
     if (bform.type === "percent" && bform.value > 100){ flash("Percent cannot be over 100."); return; }
-    await C.setBundle({id: bform.id || "bundle_" + Date.now(), name, type: bform.type, value: bform.value, items});
+    await C.setBundle({id: bform.id || "bundle_" + Date.now(), name, type: bform.type, value: bform.value, items, ...(bform.img ? {img: bform.img} : {})});
     flash(name + " saved."); bform = null; route();
   }),
   delbundle: guard(el => confirm("Delete this bundle?") && C.removeBundle(el.dataset.id)),
@@ -486,10 +507,10 @@ const ACT = {
   tab: el => { tab = el.dataset.t; regMode = false; renderAuth(); },
   toreg: () => { regMode = true; renderAuth(); }, tolog: () => { regMode = false; renderAuth(); },
   login: doLogin, register: doRegister, logout: () => C.logOut(),
-  add: el => { const p = prod(el.dataset.id); if (!p || p.stock <= 0){ flash("Out of stock."); return; } if ((cart[p.id] || 0) >= p.stock){ flash("Insufficient stock: only " + p.stock + " " + p.name + " available."); renderOrderParts(); return; } cart[p.id] = (cart[p.id] || 0) + 1; if (p.stock - cart[p.id] <= LOW) flash("Low stock: only " + (p.stock - cart[p.id]) + " " + p.name + " left."); renderOrderParts(); },
+  add: el => { const p = prod(el.dataset.id); if (!p || p.stock <= 0){ flash("Out of stock."); return; } if (need(p.id) >= p.stock){ flash("Insufficient stock: only " + p.stock + " " + p.name + " available."); renderOrderParts(); return; } cart[p.id] = (cart[p.id] || 0) + 1; if (p.stock - cart[p.id] <= LOW) flash("Low stock: only " + (p.stock - cart[p.id]) + " " + p.name + " left."); renderOrderParts(); },
   inc: el => ACT.add(el),
   dec: el => { const id = el.dataset.id; cart[id] = (cart[id] || 0) - 1; if (cart[id] <= 0) delete cart[id]; renderOrderParts(); },
-  clearcart: () => { cart = {}; activeDisc = null; bundleName = ""; note = ""; renderOrderParts(); },
+  clearcart: () => { cart = {}; cartBundles = {}; activeDisc = null; bundleName = ""; note = ""; renderOrderParts(); },
   place: guard(place),
   status: guard(el => setStatus(orders.find(o => o.id === el.dataset.id), el.dataset.s)),
   delorder: guard(el => confirm("Delete this order?") && C.removeOrder(el.dataset.id)),
@@ -521,6 +542,7 @@ document.addEventListener("change", guard(async e => {
   if (t.dataset.f){ const p = prod(t.dataset.id); let v = t.value;
     if (t.dataset.f === "price") v = Math.max(0, parseFloat(v) || 0); else if (t.dataset.f === "stock") v = Math.max(0, parseInt(v, 10) || 0); else v = v.trim() || p.name;
     await C.setProduct({...p, [t.dataset.f]: v}); }
+  else if (t.dataset.bpic && t.files[0] && bform){ try { bform.img = await toDataUrl(t.files[0], 480); route(); } catch (e) { flash("Photo could not be used."); } }
   else if (t.dataset.pic && t.files[0]){ const p = prod(t.dataset.pic); await C.setProduct({...p, img: await toDataUrl(t.files[0])}); }
 }));
 
