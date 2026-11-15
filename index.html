@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bundle Wise</title>
+<link rel="icon" type="image/png" href="images/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12263a">
+<link rel="apple-touch-icon" href="images/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#12263a;--bg:#f2f5f8;--card:#fff;--line:#d9e0e7;--muted:#5b6b7a;--teal:#0e7c7b;--tealtx:#fff;--tag:#ffd84a;--red:#c8312a;--amber:#b86e00;--blue:#2a6fd6;--green:#2e8b3d;--nav:#12263a;--navtx:#e8eef4}
+@media (prefers-color-scheme:dark){:root{--ink:#e8eef4;--bg:#0f1b27;--card:#172636;--line:#2a3d50;--muted:#93a4b5;--teal:#2bb3b1;--tealtx:#07222a;--red:#ff7b72;--amber:#ffb84d;--blue:#7db4ff;--green:#5fd37a;--nav:#0b1520}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1,h2,.brand,.price,.stat b{font-family:"Bricolage Grotesque",system-ui,sans-serif;letter-spacing:-.01em}
+h1{margin:0 0 14px;font-size:1.6rem}
+h2{margin:0 0 10px;font-size:1.15rem}
+[hidden]{display:none!important}
+.muted{color:var(--muted)}
+.boot{padding:48px 20px;text-align:center;color:var(--muted)}
+a{color:var(--teal);font-weight:600}
+/* header, side menu, bottom menu */
+.top{position:fixed;top:0;left:0;right:0;z-index:20;background:var(--nav);color:var(--navtx);display:flex;justify-content:space-between;align-items:center;padding:env(safe-area-inset-top,0px) 16px 0;height:calc(56px + env(safe-area-inset-top,0px))}
+.brand{font-weight:800;font-size:1.35rem;color:#fff}
+.who{display:flex;gap:10px;align-items:center;font-size:.9rem}
+.role{background:var(--tag);color:#12263a;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:99px}
+.top button{background:none;color:var(--navtx);border:1px solid #4a5d70}
+.side{position:fixed;top:calc(56px + env(safe-area-inset-top,0px));bottom:0;left:0;width:190px;background:var(--nav);padding:12px 0;z-index:10}
+.side a{display:flex;align-items:center;gap:10px;color:var(--navtx);text-decoration:none;padding:11px 18px;border-left:4px solid transparent;font-weight:500}
+.side a.on{background:rgba(255,255,255,.08);border-left-color:var(--tag);font-weight:700}
+svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.6;flex:none}
+.nb{background:var(--red);color:#fff;border-radius:99px;font-size:.7rem;font-weight:700;padding:0 7px;margin-left:auto}
+.brand{display:flex;align-items:center}.logo{height:44px;width:44px;display:block}.logobig{width:150px;height:150px;display:block;margin:0 auto}
+.bottom{display:none}
+main{margin-left:190px;padding:calc(56px + env(safe-area-inset-top,0px) + 18px) 20px 40px;max-width:1320px}
+@media (max-width:860px){
+  .side{display:none}
+  main{margin-left:0;padding-bottom:96px}
+  .bottom{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--nav);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .bottom a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.72rem;color:var(--navtx);text-decoration:none;padding:8px 2px;position:relative;font-weight:500}
+  .bottom a.on{color:var(--tag);font-weight:700}
+  .bottom .nb{position:absolute;top:2px;right:22%;margin:0}
+}
+/* cards, buttons, forms */
+.card,.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px}
+.stat{margin:0}.stat b{display:block;font-size:1.8rem}
+.two{display:grid;grid-template-columns:1fr 380px;gap:18px;align-items:start}
+@media (max-width:1000px){.two{grid-template-columns:1fr}}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:3px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+textarea{resize:vertical;min-height:64px}
+button,.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;text-decoration:none;display:inline-block;font-weight:500}
+button:hover,.btn:hover{border-color:var(--teal)}
+.primary{background:var(--teal);color:var(--tealtx);border-color:var(--teal);font-weight:600}
+.danger{color:var(--red)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid var(--tag);outline-offset:1px}
+.msg{font-size:.9rem;min-height:1.3em;margin-top:8px;color:var(--red)}
+.stack>*+*{margin-top:10px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--nav);color:#fff;padding:10px 16px;border-radius:10px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
+#toast.on{opacity:1}
+/* login */
+.authwrap{min-height:100vh;display:grid;place-items:center;padding:20px}
+.auth{width:100%;max-width:380px}
+.brandbig{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:800;font-size:2rem;text-align:center;margin-bottom:12px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.tabs button.on{background:var(--teal);color:var(--tealtx);border-color:var(--teal);font-weight:700}
+.auth .center{text-align:center;margin-top:12px;font-size:.9rem}
+@media (display-mode:standalone){.getapp{display:none}}
+/* products and bundle */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.prod{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:4px}
+.prod .em{font-size:1.8rem}.prod b{font-weight:600}.prod .meta{color:var(--muted);font-size:.85rem}
+.prod button{margin-top:auto}
+.pimg{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;background:var(--line)}
+.price{font-weight:700;font-size:1.15rem}
+.items{list-style:none;margin:0 0 12px;padding:0}
+.items li{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.qty{display:flex;align-items:center;gap:6px}.qty button{padding:2px 9px}
+.sum{display:flex;justify-content:space-between;padding:3px 0}.sum.save{color:var(--red)}
+.tag{margin:12px 0;background:var(--tag);color:#12263a;border-radius:10px 10px 10px 28px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:8px;border:2px dashed rgba(18,38,58,.5)}
+.tag small{display:block;font-size:.85rem;font-weight:500}.tag .price{font-size:2.1rem;font-weight:800;line-height:1}
+/* orders */
+.st{display:inline-block;padding:2px 10px;border-radius:99px;font-size:.8rem;font-weight:700;border:1px solid currentColor;white-space:nowrap}
+.st.Pending{color:var(--amber)}.st.Preparing{color:var(--blue)}.st.Ready{color:var(--teal)}.st.Completed{color:var(--green)}.st.Cancelled{color:var(--red)}
+.lines{list-style:none;margin:6px 0;padding:0}.lines li{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.line{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+/* admin product rows */
+.add{display:grid;grid-template-columns:2fr 1fr 1fr 1.3fr auto;gap:8px;align-items:end}
+.row{display:grid;grid-template-columns:110px 2fr 1fr 1.3fr auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.head{color:var(--muted);font-size:.85rem}
+@media (max-width:700px){.add{grid-template-columns:1fr 1fr}.row{grid-template-columns:110px 1fr 1fr}.row.head{display:none}.add button{grid-column:1/-1}}
+.pic{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.thumb{width:64px;height:64px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;font-size:1.8rem;overflow:hidden;background:var(--bg)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.pic label{position:relative;margin:0;font-size:.8rem;color:var(--teal);font-weight:600;cursor:pointer;text-decoration:underline}
+.pic label:focus-within{outline:3px solid var(--tag)}
+.pic input{position:absolute;opacity:0;width:1px;height:1px}
+.pic button{padding:0;border:0;background:none;color:var(--red);font-size:.8rem;text-decoration:underline}
+.stockcell{display:flex;gap:6px;align-items:center}.stockcell input{min-width:60px}
+.badge{font-size:.8rem;font-weight:600;min-height:1.2em}.badge.out{color:var(--red)}.badge.low{color:var(--amber)}
+.disc{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}
+.chk{margin:0 0 10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:.9rem}
+.chk b{display:block}.chk.ok{border-color:var(--green);color:var(--green)}.chk.low{border-color:var(--amber);color:var(--amber)}.chk.bad{border-color:var(--red);color:var(--red)}
+.chk small{display:block;color:var(--muted);margin-top:2px}
+.sbadge{font-size:.75rem;font-weight:700}.sbadge.ok{color:var(--green)}.sbadge.low{color:var(--amber)}.sbadge.bad{color:var(--red)}
+#sumModal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:grid;place-items:center;padding:16px}
+.offer{background:#fff;color:#12263a;border-radius:14px;max-width:420px;width:100%;max-height:90vh;overflow:auto;padding:22px;border:2px dashed rgba(18,38,58,.4)}
+.offer .kick{letter-spacing:.14em;font-weight:800;font-size:.8rem;color:#b45309}
+.offer h3{margin:4px 0 12px;font-size:1.4rem}
+.offer ul{margin:6px 0 14px;padding-left:20px}
+.offer .was{text-decoration:line-through;color:#64748b}
+.offer .now{font-size:2rem;font-weight:800}
+.offer .save{color:#b91c1c;font-weight:700}
+.offer .contact{margin-top:14px;font-size:.85rem;color:#475569;border-top:1px solid #e2e8f0;padding-top:10px}
+.offer button{color:#12263a}.offer .primary{color:var(--tealtx)}
+.about dl{display:grid;grid-template-columns:140px 1fr;gap:8px 14px;margin:0}.about dt{color:var(--muted)}.about dd{margin:0}
+</style>
+</head>
+<body>
+<div id="boot" class="boot">Loading…</div>
+
+<div id="auth" hidden></div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand"><img src="images/logo.png" alt="Bundle Wise" class="logo"></div>
+    <div class="who"><span id="whoName"></span><span class="role" id="roleBadge"></span><button data-act="logout">Logout</button></div>
+  </header>
+  <aside class="side" id="side"></aside>
+  <main id="main"></main>
+  <nav class="bottom" id="bottom"></nav>
+</div>
+<div id="toast" role="status"></div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const CUR = "₱"; // change to "$", "€", etc.
+const fmt = n => CUR + Number(n || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+const LOW = 5; // "low stock" at or below this
+const APK = "https://drive.google.com/uc?export=download&id=168XSZnzBXW-RWp0Nw8d6ZiITKT2ShLC1";
+const SEED = [
+  {id:1,name:"Notebook",price:45,stock:30,em:"📓"},{id:2,name:"Ballpen set",price:60,stock:25,em:"🖊️"},
+  {id:3,name:"Backpack",price:850,stock:8,em:"🎒"},{id:4,name:"Water bottle",price:220,stock:12,em:"🧴"},
+  {id:5,name:"Lunch box",price:180,stock:10,em:"🍱"},{id:6,name:"Calculator",price:320,stock:6,em:"🧮"}
+];
+const ICON = {
+  grid:'<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
+  list:'<path d="M2 4h12M2 8h12M2 12h8"/>',
+  cart:'<path d="M3 3h10l-1.5 7H4.5L3 3z"/><circle cx="6" cy="13" r="1"/><circle cx="11" cy="13" r="1"/>',
+  info:'<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5h.01"/>'
+};
+const MENU = {
+  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["orders","Orders","cart"],["about","About us","info"]],
+  customer: [["order","Order","cart"],["my-orders","My Orders","list"],["about","About us","info"]]
+};
+
+let C = null;
+try { C = await import("./cloud.js"); } catch (e) { C = null; }
+
+// ---------- state ----------
+let user = null, role = null, profile = null;
+let products = [], discount = {type:"percent", value:0}, about = {}, orders = [];
+let cart = {}, bundleName = "", note = "";
+let subs = [], dirty = false, tab = "customer", regMode = false;
+
+const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
+const show = w => { $("boot").hidden = true; $("auth").hidden = w !== "auth"; $("app").hidden = w !== "app"; };
+const ts = o => o.createdAt?.toMillis?.() ?? Date.now();
+const when = o => { const ms = o.createdAt?.toMillis?.(); return ms ? new Date(ms).toLocaleString([], {dateStyle:"medium", timeStyle:"short"}) : "Just now"; };
+const sortedOrders = () => [...orders].sort((a, b) => ts(b) - ts(a));
+
+function totals(){
+  let sub = 0, count = 0;
+  for (const p of products){ const q = cart[p.id] || 0; sub += q * p.price; count += q; }
+  const v = Math.max(0, discount.value || 0);
+  const disc = discount.type === "percent" ? sub * Math.min(v, 100) / 100 : Math.min(v, sub);
+  return {sub, count, disc, final: sub - disc};
+}
+// ---------- stock check (nothing is deducted here; stock only changes when an order is marked Ready) ----------
+function stockCheck(){
+  const lines = products.filter(p => cart[p.id]).map(p => {
+    const q = cart[p.id], left = p.stock - q;
+    return {p, q, left, state: left < 0 ? "bad" : left <= LOW ? "low" : "ok"};
+  });
+  const bad = lines.filter(l => l.state === "bad"), low = lines.filter(l => l.state === "low");
+  return {lines, bad, low, state: bad.length ? "bad" : low.length ? "low" : "ok", canFulfil: !bad.length};
+}
+const STOCK_MSG = {
+  ok: ["Available", "Sufficient stock."],
+  low: ["Low stock", "Only a few units remaining."],
+  bad: ["Insufficient stock", "Selected quantity exceeds available stock."]
+};
+const lineMsg = l => l.state === "bad" ? `Only ${l.p.stock} in stock` : l.state === "low" ? `Only ${l.left} left after this` : "";
+
+const discLabel = () => discount.type === "percent" ? discount.value + "% off" : fmt(discount.value) + " off";
+
+// ---------- login / register ----------
+function renderAuth(){
+  const login = !regMode;
+  $("auth").innerHTML = `<div class="authwrap"><div class="card auth">
+    <div class="brandbig"><img src="images/logo.png" alt="Bundle Wise" class="logobig"></div>
+    <div class="tabs"><button data-act="tab" data-t="customer" class="${tab==="customer"?"on":""}">Customer</button><button data-act="tab" data-t="admin" class="${tab==="admin"?"on":""}">Admin</button></div>
+    ${login ? `<div class="stack">
+      <div><label for="lemail">Email</label><input id="lemail" type="email" autocomplete="username"></div>
+      <div><label for="lpw">Password</label><input id="lpw" type="password" autocomplete="current-password"></div>
+      <button class="primary" style="width:100%" data-act="login">${tab==="admin"?"Log in as admin":"Log in"}</button></div>
+      ${tab==="customer" ? '<div class="center"><a href="#" data-act="toreg">Create a customer account</a></div>' : ""}`
+    : `<div class="stack">
+      <div><label for="rname">Full name</label><input id="rname" autocomplete="name"></div>
+      <div><label for="rcontact">Contact number (optional)</label><input id="rcontact" type="tel"></div>
+      <div><label for="remail">Email</label><input id="remail" type="email" autocomplete="username"></div>
+      <div><label for="rpw">Password (6 or more characters)</label><input id="rpw" type="password" autocomplete="new-password"></div>
+      <div><label for="rpw2">Confirm password</label><input id="rpw2" type="password" autocomplete="new-password"></div>
+      <button class="primary" style="width:100%" data-act="register">Create account</button></div>
+      <div class="center"><a href="#" data-act="tolog">Back to log in</a></div>`}
+    <div class="msg" id="authmsg" role="alert"></div>
+    <div class="center"><a class="getapp" href="${APK}" rel="noopener">Download for Android</a></div>
+  </div></div>`;
+}
+const authMsg = t => { const el = $("authmsg"); if (el) el.textContent = t; };
+
+async function doLogin(){
+  const email = $("lemail").value.trim(), pw = $("lpw").value;
+  authMsg("");
+  try {
+    const cred = await C.logIn(email, pw);
+    if (tab === "admin" && !(await C.isAdmin(cred.user.uid))){ await C.logOut(); authMsg("This account is not an admin account."); }
+  } catch (e) { authMsg("Wrong email or password. Try again."); }
+}
+async function doRegister(){
+  const name = $("rname").value.trim(), contact = $("rcontact").value.trim(), email = $("remail").value.trim(), pw = $("rpw").value, pw2 = $("rpw2").value;
+  if (!name || !email || pw.length < 6){ authMsg("Enter your name, email and a password of 6 or more characters."); return; }
+  if (pw !== pw2){ authMsg("Passwords do not match."); return; }
+  try { profile = {name, contact}; await C.register(name, contact, email, pw); }
+  catch (e) { profile = null; authMsg(e.code === "auth/email-already-in-use" ? "That email already has an account. Try logging in." : "Could not create the account. Check your details and try again."); }
+}
+
+// ---------- session ----------
+async function handleUser(u){
+  subs.forEach(f => f()); subs = []; user = u;
+  if (!u){ role = null; profile = null; products = []; orders = []; cart = {}; show("auth"); renderAuth(); return; }
+  try { role = (await C.isAdmin(u.uid)) ? "admin" : "customer"; if (!profile) profile = await C.getProfile(u.uid); }
+  catch (e) { role = "customer"; }
+  subs.push(
+    C.watchProducts(l => { products = l; for (const id in cart){ const p = products.find(x => x.id == id); if (!p || p.stock <= 0) delete cart[id]; } refresh(); }),
+    C.watchDiscount(d => { discount = d || {type:"percent", value:0}; refresh(); }),
+    C.watchAbout(a => { about = a || {}; refresh(); }),
+    role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); })
+  );
+  $("whoName").textContent = profile?.name || u.email;
+  $("roleBadge").textContent = role === "admin" ? "ADMIN" : "CUSTOMER";
+  show("app"); route();
+}
+
+// ---------- navigation ----------
+const current = () => { const m = MENU[role].map(x => x[0]); const r = location.hash.slice(1); return m.includes(r) ? r : m[0]; };
+function nav(){
+  const pend = role === "admin" ? orders.filter(o => o.status === "Pending").length : 0, cur = current();
+  const link = ([id, label, ic]) => `<a href="#${id}" class="${cur===id?"on":""}"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[ic]}</svg>${label}${id==="orders" && pend ? `<span class="nb">${pend}</span>` : ""}</a>`;
+  const html = MENU[role].map(link).join("");
+  $("side").innerHTML = html; $("bottom").innerHTML = html;
+}
+function route(){ if (!user) return; nav(); $("main").innerHTML = PAGES[current()](); }
+function refresh(){
+  if (!user || !role) return;
+  const a = document.activeElement;
+  if (a && $("main").contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)){ dirty = true; nav(); return; }
+  route();
+}
+window.addEventListener("hashchange", route);
+document.addEventListener("focusout", () => { if (dirty) setTimeout(() => { dirty = false; refresh(); }, 0); });
+
+// ---------- pages ----------
+const stat = (label, n) => `<div class="stat"><span class="muted">${label}</span><b>${n}</b></div>`;
+const itemsText = o => (o.items || []).map(i => `${i.qty} × ${esc(i.name)}`).join(", ");
+
+function pgDashboard(){
+  const low = products.filter(p => p.stock > 0 && p.stock <= LOW), out = products.filter(p => p.stock <= 0);
+  const pend = orders.filter(o => o.status === "Pending").sort((a, b) => ts(b) - ts(a));
+  return `<h1>Dashboard</h1>
+  <div class="stats">${stat("Products", products.length)}${stat("Total stock", products.reduce((s, p) => s + p.stock, 0))}${stat("Low stock", low.length)}${stat("Out of stock", out.length)}${stat("New orders", pend.length)}</div>
+  <section class="card"><div class="cardhead"><h2>New orders</h2><a class="btn" href="#orders">View orders</a></div>
+    ${pend.length ? pend.slice(0, 5).map(o => `<div class="line"><span><b>${esc(o.customerName)}</b><br><span class="muted">${itemsText(o)}</span></span><b>${fmt(o.total)}</b></div>`).join("") : '<p class="muted">No new orders right now.</p>'}</section>
+  <section class="card"><div class="cardhead"><h2>Needs restocking</h2><a class="btn" href="#products">Manage products</a></div>
+    ${low.length + out.length ? [...out, ...low].map(p => `<div class="line"><span>${esc(p.name)}</span><span class="badge ${p.stock<=0?"out":"low"}">${p.stock<=0?"Out of stock":p.stock+" left"}</span></div>`).join("") : '<p class="muted">Everything is well stocked.</p>'}</section>`;
+}
+
+function orderCard(o, admin){
+  return `<article class="card"><div class="cardhead"><div><b>${esc(o.customerName)}</b><div class="muted">${when(o)}</div></div><span class="st ${esc(o.status)}">${esc(o.status)}</span></div>
+    <ul class="lines">${(o.items || []).map(i => `<li><span>${i.qty} × ${esc(i.name)}</span><span>${fmt(i.subtotal)}</span></li>`).join("")}</ul>
+    ${o.bundleName ? `<div class="muted">Bundle: ${esc(o.bundleName)}</div>` : ""}${o.note ? `<div class="muted">Note: ${esc(o.note)}</div>` : ""}
+    ${o.discount > 0 ? `<div class="sum save"><span>Bundle discount (${esc(o.discountLabel)})</span><span>-${fmt(o.discount)}</span></div>` : ""}
+    <div class="sum"><b>Total</b><b>${fmt(o.total)}</b></div>
+    ${admin ? `<div class="acts">${[["Preparing","Preparing"],["Ready","Ready"],["Completed","Complete"],["Cancelled","Cancel"]].map(([s, l]) => `<button data-act="status" data-id="${o.id}" data-s="${s}" ${o.status===s?"disabled":""}>${l}</button>`).join("")}<button class="danger" data-act="delorder" data-id="${o.id}">Delete</button></div>` : ""}</article>`;
+}
+const pgOrders = () => `<h1>Orders</h1>${orders.length ? sortedOrders().map(o => orderCard(o, true)).join("") : '<p class="muted">No orders yet. New pre-orders will show up here.</p>'}`;
+const pgMyOrders = () => `<h1>My Orders</h1>${orders.length ? sortedOrders().map(o => orderCard(o, false)).join("") : '<div class="card"><p class="muted">You have no orders yet.</p><a class="btn primary" href="#order">Order now</a></div>'}`;
+
+function pgAbout(){
+  const f = [["owner","Owner"],["contact","Contact #"],["facebookAccount","Facebook account"],["facebookPage","Facebook page"],["address","Address"]];
+  if (role !== "admin") return `<h1>About us</h1><section class="card about"><dl>${f.map(([k, l]) => `<dt>${l}</dt><dd>${esc(about[k]) || "—"}</dd>`).join("")}</dl></section>`;
+  return `<h1>About us</h1><section class="card stack"><p class="muted">Customers see this page. Edit it here.</p>
+    ${f.map(([k, l]) => `<div><label for="ab_${k}">${l}</label><input id="ab_${k}" value="${esc(about[k])}"></div>`).join("")}
+    <button class="primary" data-act="saveabout">Save</button></section>`;
+}
+
+function pgProducts(){
+  const badge = s => s <= 0 ? '<div class="badge out">Out of stock</div>' : s <= LOW ? '<div class="badge low">Low stock</div>' : '<div class="badge"></div>';
+  return `<h1>Products</h1>
+  <section class="card"><h2>Bundle discount</h2>
+    <div class="disc"><div><label for="dtype">Discount type</label><select id="dtype"><option value="percent" ${discount.type==="percent"?"selected":""}>Percent (%)</option><option value="fixed" ${discount.type==="fixed"?"selected":""}>Fixed amount</option></select></div>
+    <div><label for="dval">Discount value</label><input id="dval" type="number" min="0" step="0.01" value="${discount.value}"></div>
+    <button class="primary" data-act="savedisc">Save discount</button></div></section>
+  <section class="card"><h2>Add a new item</h2>
+    <div class="add"><div><label for="nn">Name</label><input id="nn" placeholder="e.g. Highlighter"></div><div><label for="np">Price</label><input id="np" type="number" min="0" step="0.01"></div>
+    <div><label for="ns">Starting stock</label><input id="ns" type="number" min="0" step="1"></div><div><label for="nf">Photo (optional)</label><input id="nf" type="file" accept="image/*"></div>
+    <button class="primary" data-act="addprod">Add item</button></div></section>
+  <section class="card"><h2>Inventory</h2>
+    ${products.length ? `<div class="row head"><span>Photo</span><span>Name</span><span>Price</span><span>Stock</span><span></span></div>` + products.map(p => `<div class="row">
+      <div class="pic"><div class="thumb">${p.img ? `<img src="${esc(p.img)}" alt="">` : esc(p.em || "📦")}</div>
+        <label>${p.img ? "Change photo" : "Add photo"}<input type="file" accept="image/*" data-pic="${p.id}" aria-label="Photo for ${esc(p.name)}"></label>${p.img ? `<button data-act="rmpic" data-id="${p.id}">Remove</button>` : ""}</div>
+      <input data-f="name" data-id="${p.id}" value="${esc(p.name)}" aria-label="Name">
+      <input data-f="price" data-id="${p.id}" type="number" min="0" step="0.01" value="${p.price}" aria-label="Price of ${esc(p.name)}">
+      <div><div class="stockcell"><input data-f="stock" data-id="${p.id}" type="number" min="0" step="1" value="${p.stock}" aria-label="Stock of ${esc(p.name)}"><button data-act="addstock" data-n="1" data-id="${p.id}">+1</button><button data-act="addstock" data-n="10" data-id="${p.id}">+10</button></div>${badge(p.stock)}</div>
+      <div><button class="danger" data-act="delprod" data-id="${p.id}">Delete</button></div></div>`).join("")
+    : '<p class="muted">No items yet. Add one above, or load a few samples.</p><button data-act="seed">Load sample items</button>'}</section>`;
+}
+
+const stockBanner = () => { const sc = stockCheck(); if (!sc.lines.length) return "";
+  return `<div class="chk ${sc.state}" role="status"><b>${STOCK_MSG[sc.state][0]}</b>${sc.state === "bad" ? `Selected quantity exceeds available stock for ${sc.bad.map(l => esc(l.p.name)).join(", ")}.` : sc.state === "low" ? `${STOCK_MSG.low[1]} (${sc.low.map(l => esc(l.p.name)).join(", ")})` : STOCK_MSG.ok[1]}</div>`; };
+const cardWarn = p => { const q = cart[p.id] || 0, left = p.stock - q;
+  if (p.stock <= 0) return ""; if (q && left < 0) return `<span class="sbadge bad">Insufficient stock · only ${p.stock} available</span>`;
+  if (left <= LOW) return `<span class="sbadge low">Low stock · ${left} left</span>`; return ""; };
+const prodCard = p => { const left = p.stock - (cart[p.id] || 0);
+  return `<div class="prod">${p.img ? `<img class="pimg" src="${esc(p.img)}" alt="" loading="lazy">` : `<span class="em" aria-hidden="true">${esc(p.em || "📦")}</span>`}<b>${esc(p.name)}</b><span class="price">${fmt(p.price)}</span><span class="meta">${p.stock<=0 ? "Out of stock" : left<=0 ? "No more available" : left + " in stock"}</span>${cardWarn(p)}<button data-act="add" data-id="${p.id}" ${left<=0?"disabled":""}>Add to bundle</button></div>`; };
+function panelHtml(){
+  const t = totals(), ls = products.filter(p => cart[p.id]), sc = stockCheck();
+  return `<h2>Your bundle</h2><div class="muted" style="margin-bottom:8px">Ordering as ${esc(profile?.name || user.email)}</div>
+  <label for="bn">Bundle name (optional)</label><input id="bn" value="${esc(bundleName)}" placeholder="e.g. Back-to-school pack" style="margin-bottom:12px">
+  <ul class="items">${ls.length ? ls.map(p => `<li><span>${esc(p.name)}<br><small class="muted">${fmt(p.price)} each</small>${(() => { const l = sc.lines.find(x => x.p.id === p.id); return l && l.state !== "ok" ? `<br><small class="sbadge ${l.state}">${STOCK_MSG[l.state][0]} · ${lineMsg(l)}</small>` : ""; })()}</span>
+    <span class="qty"><button data-act="dec" data-id="${p.id}" aria-label="Remove one ${esc(p.name)}">−</button><span>${cart[p.id]}</span><button data-act="inc" data-id="${p.id}" aria-label="Add one ${esc(p.name)}" ${cart[p.id]>=p.stock?"disabled":""}>+</button></span><b>${fmt(cart[p.id]*p.price)}</b></li>`).join("") : '<li class="muted" style="display:block">Your bundle is empty. Add products from the list.</li>'}</ul>
+  ${sc.lines.length ? `<div class="chk ${sc.state}" role="status"><b>${STOCK_MSG[sc.state][0]}</b>${sc.state === "bad" ? `Selected quantity exceeds available stock for ${sc.bad.map(l => esc(l.p.name)).join(", ")}.` : STOCK_MSG[sc.state][1]}<small>Stock is only deducted when an order is processed, not while you build a bundle.</small></div>` : ""}
+  <div class="sum"><span>Items</span><span>${t.count}</span></div><div class="sum"><span>Subtotal</span><span>${fmt(t.sub)}</span></div>
+  <div class="sum save"><span>${t.disc > 0 ? "Bundle discount (" + esc(discLabel()) + ")" : "Bundle discount"}</span><span>-${fmt(t.disc)}</span></div>
+  <div class="tag"><div><small>Final bundle price</small><small>${t.disc > 0 ? "You save " + fmt(t.disc) : ""}</small></div><div class="price">${fmt(t.final)}</div></div>
+  <label for="note">Note / special request</label><textarea id="note">${esc(note)}</textarea>
+  <div class="acts"><button class="primary" data-act="place" ${!t.count || !sc.canFulfil ? "disabled" : ""}>Place pre-order</button><button data-act="summary" ${!t.count ? "disabled" : ""}>Customer summary</button><button data-act="clearcart">Clear</button></div>`;
+}
+const pgOrder = () => `<h1>Order</h1><div id="sbanner">${stockBanner()}</div><div class="two"><div><div class="grid" id="pgrid">${products.length ? products.map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
+const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); } };
+
+const PAGES = {dashboard: pgDashboard, products: pgProducts, orders: pgOrders, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
+
+// ---------- actions ----------
+function toDataUrl(file, max = 320){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader(); r.onerror = reject;
+    r.onload = () => { const im = new Image(); im.onerror = reject;
+      im.onload = () => { const s = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas");
+        c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); resolve(c.toDataURL("image/jpeg", 0.8)); };
+      im.src = r.result; };
+    r.readAsDataURL(file);
+  });
+}
+const prod = id => products.find(p => p.id == id);
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { console.error(e); flash("That did not save. Check your internet and login."); } };
+
+async function setStatus(o, s){
+  const patch = {status: s};
+  if (s === "Ready" && !o.deducted){ for (const i of o.items){ const p = prod(i.id); if (p) await C.setProduct({...p, stock: Math.max(0, p.stock - i.qty)}); } patch.deducted = true; }
+  if (s === "Cancelled" && o.deducted){ for (const i of o.items){ const p = prod(i.id); if (p) await C.setProduct({...p, stock: p.stock + i.qty}); } patch.deducted = false; }
+  await C.updateOrder(o.id, patch);
+}
+async function place(){
+  const t = totals(); if (!t.count){ flash("Add at least one product first."); return; }
+  const items = products.filter(p => cart[p.id]).map(p => ({id: p.id, name: p.name, price: p.price, qty: cart[p.id], subtotal: p.price * cart[p.id]}));
+  const short = items.find(i => i.qty > (prod(i.id)?.stock ?? 0)); if (short){ flash("Insufficient stock: " + short.name + " (only " + (prod(short.id)?.stock ?? 0) + " left)."); return; }
+  await C.placeOrder({uid: user.uid, customerName: profile?.name || user.email, items, bundleName: bundleName.trim(), note: note.trim(), subtotal: t.sub, discount: t.disc, discountLabel: discLabel(), total: t.final, status: "Pending"});
+  cart = {}; bundleName = ""; note = ""; flash("Order placed! Track it in My Orders."); location.hash = "my-orders";
+}
+async function addProd(){
+  const name = $("nn").value.trim(), price = parseFloat($("np").value), stock = parseInt($("ns").value, 10);
+  if (!name || isNaN(price) || price < 0 || isNaN(stock) || stock < 0){ flash("Enter a name, a price and a starting stock."); return; }
+  const item = {id: Date.now(), name, price, stock, em: "📦"}, file = $("nf").files[0];
+  if (file){ try { item.img = await toDataUrl(file); } catch (e) { flash("Photo could not be used. Item added without it."); } }
+  await C.setProduct(item); flash(name + " added.");
+}
+
+function offerText(){
+  const t = totals(), ls = products.filter(p => cart[p.id]);
+  const strike = str => [...str].map(c => c + "\u0336").join("");
+  const out = ["SPECIAL BUNDLE OFFER", bundleName.trim() || "Bundle Deal", "", "What's included?"];
+  ls.forEach(p => out.push(`• ${cart[p.id]} ${p.name}`));
+  out.push("");
+  if (t.disc > 0){ out.push("Regular price: " + strike(fmt(t.sub))); out.push("Save " + fmt(t.disc) + " (" + discLabel() + ")"); }
+  out.push("Bundle price: " + fmt(t.final));
+  const c = [about.contact && "Contact: " + about.contact, about.facebookPage && "Facebook: " + about.facebookPage].filter(Boolean);
+  if (c.length) out.push("", ...c);
+  return out.join("\n");
+}
+function offerHtml(){
+  const t = totals(), ls = products.filter(p => cart[p.id]);
+  return `<div class="offer" role="dialog" aria-modal="true" aria-label="Customer-ready bundle summary"><div class="kick">SPECIAL BUNDLE OFFER</div><h3>${esc(bundleName.trim() || "Bundle Deal")}</h3>
+    <b>What's included?</b><ul>${ls.map(p => `<li>${cart[p.id]} ${esc(p.name)}</li>`).join("")}</ul>
+    ${t.disc > 0 ? `<div class="was">Regular price: ${fmt(t.sub)}</div><div class="save">Save ${fmt(t.disc)} (${esc(discLabel())})</div>` : ""}
+    <div class="now">${fmt(t.final)}</div>
+    ${about.contact || about.facebookPage ? `<div class="contact">${about.contact ? "Contact: " + esc(about.contact) + "<br>" : ""}${about.facebookPage ? "Facebook: " + esc(about.facebookPage) : ""}</div>` : ""}
+    <div class="acts"><button class="primary" data-act="copysum">Copy to send</button><button data-act="closesum">Close</button></div></div>`;
+}
+async function copyText(txt){
+  try { await navigator.clipboard.writeText(txt); return true; }
+  catch (e) { const ta = document.createElement("textarea"); ta.value = txt; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (_) {} ta.remove(); return ok; }
+}
+
+const ACT = {
+  summary: () => {
+    const sc = stockCheck();
+    if (!totals().count){ flash("Add at least one product first."); return; }
+    if (!sc.canFulfil){ flash("Cannot prepare this bundle: " + sc.bad.map(l => l.p.name).join(", ") + " has insufficient stock."); return; }
+    const m = document.createElement("div"); m.id = "sumModal"; m.innerHTML = offerHtml(); document.body.appendChild(m);
+  },
+  closesum: () => $("sumModal")?.remove(),
+  copysum: async () => { flash(await copyText(offerText()) ? "Summary copied. Paste it in a message." : "Could not copy. Please try again."); },
+  tab: el => { tab = el.dataset.t; regMode = false; renderAuth(); },
+  toreg: () => { regMode = true; renderAuth(); }, tolog: () => { regMode = false; renderAuth(); },
+  login: doLogin, register: doRegister, logout: () => C.logOut(),
+  add: el => { const p = prod(el.dataset.id); if (!p || p.stock <= 0){ flash("Out of stock."); return; } if ((cart[p.id] || 0) >= p.stock){ flash("Insufficient stock: only " + p.stock + " " + p.name + " available."); renderOrderParts(); return; } cart[p.id] = (cart[p.id] || 0) + 1; if (p.stock - cart[p.id] <= LOW) flash("Low stock: only " + (p.stock - cart[p.id]) + " " + p.name + " left."); renderOrderParts(); },
+  inc: el => ACT.add(el),
+  dec: el => { const id = el.dataset.id; cart[id] = (cart[id] || 0) - 1; if (cart[id] <= 0) delete cart[id]; renderOrderParts(); },
+  clearcart: () => { cart = {}; bundleName = ""; note = ""; renderOrderParts(); },
+  place: guard(place),
+  status: guard(el => setStatus(orders.find(o => o.id === el.dataset.id), el.dataset.s)),
+  delorder: guard(el => confirm("Delete this order?") && C.removeOrder(el.dataset.id)),
+  addprod: guard(addProd),
+  addstock: guard(el => { const p = prod(el.dataset.id); return C.setProduct({...p, stock: p.stock + +el.dataset.n}); }),
+  delprod: guard(el => { const p = prod(el.dataset.id); return confirm("Delete " + p.name + "?") && C.removeProduct(p.id); }),
+  rmpic: guard(el => { const {img, ...p} = prod(el.dataset.id); return C.setProduct(p); }),
+  seed: guard(async () => { for (const p of SEED) await C.setProduct(p); }),
+  savedisc: guard(async () => {
+    const type = $("dtype").value, value = parseFloat($("dval").value);
+    if (isNaN(value) || value < 0 || (type === "percent" && value > 100)){ flash("Enter a valid discount."); return; }
+    await C.setDiscount({type, value}); flash("Discount saved.");
+  }),
+  saveabout: guard(async () => {
+    const o = {}; for (const k of ["owner","contact","facebookAccount","facebookPage","address"]) o[k] = $("ab_" + k).value.trim();
+    await C.setAbout(o); flash("Saved.");
+  })
+};
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  if (el.tagName === "A") e.preventDefault();
+  ACT[el.dataset.act]?.(el);
+});
+document.addEventListener("input", e => { if (e.target.id === "bn") bundleName = e.target.value; if (e.target.id === "note") note = e.target.value; });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && !regMode && ["lemail", "lpw"].includes(e.target.id)) doLogin(); });
+document.addEventListener("change", guard(async e => {
+  const t = e.target;
+  if (t.dataset.f){ const p = prod(t.dataset.id); let v = t.value;
+    if (t.dataset.f === "price") v = Math.max(0, parseFloat(v) || 0); else if (t.dataset.f === "stock") v = Math.max(0, parseInt(v, 10) || 0); else v = v.trim() || p.name;
+    await C.setProduct({...p, [t.dataset.f]: v}); }
+  else if (t.dataset.pic && t.files[0]){ const p = prod(t.dataset.pic); await C.setProduct({...p, img: await toDataUrl(t.files[0])}); }
+}));
+
+// ---------- start ----------
+if (!C || !C.configured){ $("boot").textContent = C ? "Cloud is not set up yet. Fill in cloud.js first." : "Cannot reach the cloud. Check your internet and refresh."; }
+else { C.onUser(handleUser); }
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
