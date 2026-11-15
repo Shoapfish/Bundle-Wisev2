@@ -133,7 +133,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 <div id="app" hidden>
   <header class="top">
     <div class="brand"><img src="images/logo.png" alt="Bundle Wise" class="logo"></div>
-    <div class="who"><span id="whoName"></span><span class="role" id="roleBadge"></span><button data-act="logout">Logout</button></div>
+    <div class="who"><button class="getapp" data-act="install">Install app</button><span id="whoName"></span><span class="role" id="roleBadge"></span><button data-act="logout">Logout</button></div>
   </header>
   <aside class="side" id="side"></aside>
   <main id="main"></main>
@@ -147,7 +147,15 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const CUR = "₱"; // change to "$", "€", etc.
 const fmt = n => CUR + Number(n || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
 const LOW = 5; // "low stock" at or below this
-const APK = "https://drive.google.com/uc?export=download&id=168XSZnzBXW-RWp0Nw8d6ZiITKT2ShLC1";
+let installEvt = null; // the browser's "install app" prompt, when it offers one
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; });
+window.addEventListener("appinstalled", () => { installEvt = null; document.querySelectorAll(".getapp").forEach(x => x.remove()); flash("Bundle Wise is installed on your phone."); });
+async function installApp(){
+  if (installEvt){ installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  alert(ios ? "To install on your iPhone or iPad:\n1. Tap the Share button in Safari.\n2. Tap \"Add to Home Screen\".\n3. Tap Add."
+            : "To install on your phone:\n1. Open this site in Chrome.\n2. Tap the menu (three dots).\n3. Tap \"Install app\" or \"Add to Home screen\".");
+}
 const SEED = [
   {id:1,name:"Notebook",price:45,stock:30,em:"📓"},{id:2,name:"Ballpen set",price:60,stock:25,em:"🖊️"},
   {id:3,name:"Backpack",price:850,stock:8,em:"🎒"},{id:4,name:"Water bottle",price:220,stock:12,em:"🧴"},
@@ -233,7 +241,7 @@ function renderAuth(){
       <button class="primary" style="width:100%" data-act="register">Create account</button></div>
       <div class="center"><a href="#" data-act="tolog">Back to log in</a></div>`}
     <div class="msg" id="authmsg" role="alert"></div>
-    <div class="center"><a class="getapp" href="${APK}" rel="noopener">Download for Android</a></div>
+    <div class="center"><button class="getapp" data-act="install">Install app on your phone</button></div>
   </div></div>`;
 }
 const authMsg = t => { const el = $("authmsg"); if (el) el.textContent = t; };
@@ -506,6 +514,7 @@ const ACT = {
   copysum: async () => { flash(await copyText(offerText()) ? "Summary copied. Paste it in a message." : "Could not copy. Please try again."); },
   tab: el => { tab = el.dataset.t; regMode = false; renderAuth(); },
   toreg: () => { regMode = true; renderAuth(); }, tolog: () => { regMode = false; renderAuth(); },
+  install: installApp,
   login: doLogin, register: doRegister, logout: () => C.logOut(),
   add: el => { const p = prod(el.dataset.id); if (!p || p.stock <= 0){ flash("Out of stock."); return; } if (need(p.id) >= p.stock){ flash("Insufficient stock: only " + p.stock + " " + p.name + " available."); renderOrderParts(); return; } cart[p.id] = (cart[p.id] || 0) + 1; if (p.stock - cart[p.id] <= LOW) flash("Low stock: only " + (p.stock - cart[p.id]) + " " + p.name + " left."); renderOrderParts(); },
   inc: el => ACT.add(el),
