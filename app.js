@@ -303,12 +303,12 @@ const fmtK = n => CUR + (n >= 1000 ? +(n / 1000).toFixed(1) + "K" : n);
 const pc = (c, p) => p ? (c - p) / p * 100 : null;
 const delta = (c, p) => { const v = pc(c, p); return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${Math.abs(v).toFixed(1)}%</span>`; };
 const bigIc = k => `<span class="kic"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[k]}</svg></span>`;
-// bundles sold in a list of orders: ready-made bundles by name, everything built by hand counts as "Custom bundle"
+// bundles sold in a list of orders: only the bundles the admin created (items picked by hand are not counted)
 function sold(l){
   const m = new Map(), add = (key, name, id, qty, rev) => { const r = m.get(key) || {name, id, qty: 0, rev: 0}; r.qty += qty; r.rev += rev; m.set(key, r); };
-  for (const o of l){ let br = 0;
-    for (const b of o.bundles || []){ const rev = b.price * b.qty; br += rev; add(b.id || b.name, b.name, b.id, b.qty, rev); }
-    if ((o.items || []).some(i => !i.bundle)) add("custom", "Custom bundle", "", 1, Math.max(0, o.total - br)); }
+  for (const o of l){
+    for (const b of o.bundles || []){ const rev = b.price * b.qty; add(b.id || b.name, b.name, b.id, b.qty, rev); }
+  }
   return [...m.values()].sort((a, b) => b.qty - a.qty || b.rev - a.rev);
 }
 function niceStep(x){ if (x <= 0) return 100; const mag = 10 ** Math.floor(Math.log10(x)), r = x / mag; return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag; }
@@ -349,7 +349,7 @@ function pgAnalytics(){
   const medal = i => `<span class="medal${i < 3 ? " m" + (i + 1) : ""}">${i + 1}</span>`;
   const growth = pc(totalCust, totalCust - newCust);
   return `<div class="an-head"><div><h1>Reports and Analytics</h1><p class="muted" style="margin:0">Track performance. Make data-driven decisions. Cancelled orders are not counted.</p></div>
-    <div><label for="arange">Date range</label><select id="arange">${[[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [0, "All time"]].map(([v, l]) => `<option value="${v}" ${aRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div><label for="arange">Date range</label><select id="arange">${[[7, "Last 1 week"], [30, "Last 1 month"], [60, "Last 2 months"]].map(([v, l]) => `<option value="${v}" ${aRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
   <div class="kpis">
     <div class="card kpi">${bigIc("users")}<div><span class="muted">Total Customers</span><div class="kv"><b>${totalCust.toLocaleString()}</b>${aRange ? delta(totalCust, totalCust - newCust) : ""}</div><small class="muted">${aRange ? newCust + " new in the " + rangeName : "All registered customers"}</small></div></div>
     <div class="card kpi">${bigIc("cart")}<div><span class="muted">Total Sales</span><div class="kv"><b>${cur.length.toLocaleString()}</b>${aRange ? delta(cur.length, prev.length) : ""}</div><small class="muted">${fmt(sum(cur, o => o.total))} from orders, ${rangeName}</small></div></div>
