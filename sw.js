@@ -1,9 +1,12 @@
 // Bundle Wise service worker: keeps the app working offline.
 // Change the version number below whenever you want every device to refresh its saved copy.
-const CACHE = "bundle-wise-v8";
+const CACHE = "bundle-wise-v9";
 const FILES = [
   "./",
   "index.html",
+  "admin.html",
+  "app.js",
+  "style.css",
   "manifest.json",
   "cloud.js",
   "config.js",
