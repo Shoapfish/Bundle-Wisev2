@@ -24,7 +24,7 @@ service cloud.firestore {
     match /chats/{uid} {
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
       allow create, update: if request.auth != null && (request.auth.uid == uid || isAdmin());
-      allow delete: if isAdmin();
+      allow delete: if request.auth != null && (request.auth.uid == uid || isAdmin());
       match /messages/{mid} {
         allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
         allow create: if request.auth != null
@@ -32,7 +32,7 @@ service cloud.firestore {
           && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000
           && ((request.auth.uid == uid && request.resource.data.from == "customer")
               || (isAdmin() && request.resource.data.from == "admin"));
-        allow delete: if isAdmin();
+        allow delete: if request.auth != null && (request.auth.uid == uid || isAdmin());
       }
     }
   }

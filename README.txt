@@ -67,3 +67,8 @@ until you do this.
    the top right.
    Note: customer growth uses the sign-up date. Accounts created before this
    update have no sign-up date, so they count as "existing" customers.
+
+4. Delete a conversation
+   Both the customer (trash icon in the chat window) and the admin (Delete
+   conversation button in the Chat page) can delete a whole conversation. It is
+   removed for both sides. Re-publish firestore.rules for this to work.

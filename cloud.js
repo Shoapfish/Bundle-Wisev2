@@ -1,7 +1,7 @@
 // Bundle Wise cloud (Firebase free Spark plan): accounts, products, discount, orders and About us.
 // Your Firebase values live in config.js (the only file you need to edit).
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, doc, onSnapshot, getDoc, setDoc, deleteDoc, addDoc, updateDoc, query, where, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, doc, onSnapshot, getDoc, setDoc, deleteDoc, addDoc, updateDoc, query, where, serverTimestamp, increment, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 import { firebaseConfig } from "./config.js";
@@ -47,6 +47,12 @@ export const sendMessage = async (uid, from, text, customerName) => {
   const meta = { uid, lastMessage: text.slice(0, 120), lastFrom: from, lastAt: serverTimestamp() };
   if (from === "customer") { meta.customerName = customerName; meta.adminUnread = increment(1); } else meta.customerUnread = increment(1);
   await setDoc(doc(db, "chats", uid), meta, { merge: true });
+};
+// Delete a whole conversation (all messages, then the thread itself). Works for the customer who owns it and for admins.
+export const deleteChat = async uid => {
+  const snap = await getDocs(collection(db, "chats", uid, "messages"));
+  for (let i = 0; i < snap.docs.length; i += 400){ const b = writeBatch(db); snap.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
+  await deleteDoc(doc(db, "chats", uid));
 };
 export const markChatRead = (uid, who) => updateDoc(doc(db, "chats", uid), who === "admin" ? { adminUnread: 0 } : { customerUnread: 0 }).catch(err);
 

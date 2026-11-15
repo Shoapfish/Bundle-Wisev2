@@ -164,3 +164,4 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   .chatwrap{grid-template-columns:1fr;height:calc(100vh - 210px)}.chatwrap.open .chatlist,.chatwrap:not(.open) .chatpane{display:none!important}.backbtn{display:inline-block}
   .bottom a{font-size:.62rem}
 }
+.cpanel header>span{display:flex;gap:4px}

@@ -144,7 +144,7 @@ async function handleUser(u){
     role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); }),
     ...(role === "admin" ? [
       C.watchCustomers(l => { customers = l; refresh(); }),
-      C.watchChats(l => { chats = l; if (selChat && current() === "chat" && chats.find(c => c.id === selChat)?.adminUnread > 0) C.markChatRead(selChat, "admin"); refresh(); })
+      C.watchChats(l => { chats = l; if (selChat && !l.find(c => c.id === selChat)){ threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; if (current() === "chat"){ route(); return; } } if (selChat && current() === "chat" && chats.find(c => c.id === selChat)?.adminUnread > 0) C.markChatRead(selChat, "admin"); refresh(); })
     ] : [
       C.watchMessages(u.uid, l => { chatMsgs = l; renderCW(); }),
       C.watchChat(u.uid, c => { myChat = c; renderCW(); })
@@ -295,13 +295,13 @@ const pgOrder = () => `<h1>Order</h1><div id="bundlesec">${bundleSection()}</div
 const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); if ($("bundlesec")) $("bundlesec").innerHTML = bundleSection(); } };
 
 // ---------- reports and analytics (admin) ----------
-const DAY = 864e5;
+const DAY = 864e5, RANGES = [[7, "1 week"], [30, "1 month"], [365, "12 months"]]; // date range choices, in this order
 const live = () => orders.filter(o => o.status !== "Cancelled"); // cancelled orders are never counted
 const between = (l, a, b) => l.filter(o => { const t = ts(o); return t >= a && t < b; });
 const sum = (l, f) => l.reduce((n, x) => n + f(x), 0);
 const fmtK = n => CUR + (n >= 1000 ? +(n / 1000).toFixed(1) + "K" : n);
 const pc = (c, p) => p ? (c - p) / p * 100 : null;
-const delta = (c, p) => { const v = pc(c, p); return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${Math.abs(v).toFixed(1)}%</span>`; };
+const delta = (c, p) => { const v = pc(c, p); if (v === 0) return '<span class="dl">0.0%</span>'; return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${Math.abs(v).toFixed(1)}%</span>`; };
 const bigIc = k => `<span class="kic"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[k]}</svg></span>`;
 // bundles sold in a list of orders: only the bundles the admin created (items picked by hand are not counted)
 function sold(l){
@@ -330,7 +330,7 @@ function trendChart(pts){
 function pgAnalytics(){
   const now = Date.now(), all = live(), span = aRange * DAY, start = aRange ? now - span : 0;
   const cur = aRange ? between(all, start, Infinity) : all, prev = aRange ? between(all, start - span, start) : [];
-  const rangeName = aRange ? `last ${aRange} days` : "all time";
+  const rangeName = aRange ? "last " + RANGES.find(r => r[0] === aRange)[1] : "all time";
   // customers
   const born = c => c.createdAt?.toMillis?.() ?? 0, totalCust = customers.length, newCust = aRange ? customers.filter(c => born(c) >= start).length : 0;
   // bundles
@@ -349,7 +349,7 @@ function pgAnalytics(){
   const medal = i => `<span class="medal${i < 3 ? " m" + (i + 1) : ""}">${i + 1}</span>`;
   const growth = pc(totalCust, totalCust - newCust);
   return `<div class="an-head"><div><h1>Reports and Analytics</h1><p class="muted" style="margin:0">Track performance. Make data-driven decisions. Cancelled orders are not counted.</p></div>
-    <div><label for="arange">Date range</label><select id="arange">${[[7, "Last 1 week"], [30, "Last 1 month"], [60, "Last 2 months"]].map(([v, l]) => `<option value="${v}" ${aRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div><label for="arange">Date range</label><select id="arange">${RANGES.map(([v, l]) => [v, "Last " + l]).map(([v, l]) => `<option value="${v}" ${aRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
   <div class="kpis">
     <div class="card kpi">${bigIc("users")}<div><span class="muted">Total Customers</span><div class="kv"><b>${totalCust.toLocaleString()}</b>${aRange ? delta(totalCust, totalCust - newCust) : ""}</div><small class="muted">${aRange ? newCust + " new in the " + rangeName : "All registered customers"}</small></div></div>
     <div class="card kpi">${bigIc("cart")}<div><span class="muted">Total Sales</span><div class="kv"><b>${cur.length.toLocaleString()}</b>${aRange ? delta(cur.length, prev.length) : ""}</div><small class="muted">${fmt(sum(cur, o => o.total))} from orders, ${rangeName}</small></div></div>
@@ -366,8 +366,8 @@ function pgAnalytics(){
     <section class="card"><h2>Recent Daily Performance</h2><div class="tscroll"><table class="tbl"><thead><tr><th>Date</th><th class="r">Total Sales</th><th class="r">Revenue</th><th>Best-Selling Bundle</th></tr></thead>
       <tbody>${days.map(d => `<tr><td>${d.date}</td><td class="r">${d.n}</td><td class="r">${fmt(d.rev)}</td><td>${esc(d.best)}</td></tr>`).join("")}</tbody></table></div></section>
     <section class="card"><h2>Key Insights</h2><div class="ins">
-      <div>${bigIc("chart")}<b class="${mg === null ? "" : mg >= 0 ? "up" : "down"}">${mg === null ? "–" : (mg >= 0 ? "+" : "") + mg.toFixed(1) + "%"}</b><span class="muted">${mg === null ? "Not enough data yet to compare with last month." : `Monthly revenue ${mg >= 0 ? "increased" : "decreased"} by ${Math.abs(mg).toFixed(1)}% compared to the same days last month.`}</span></div>
-      <div>${bigIc("users")}<b class="${aRange && growth !== null ? (growth >= 0 ? "up" : "down") : ""}">${aRange ? (growth === null ? (newCust ? "New" : "–") : (growth >= 0 ? "+" : "") + growth.toFixed(1) + "%") : totalCust}</b><span class="muted">${aRange ? (newCust ? `Total customers grew by ${growth === null ? newCust : growth.toFixed(1) + "%"} in the ${rangeName}.` : `No new customers in the ${rangeName}.`) : "Registered customers in total."}</span></div>
+      <div>${bigIc("chart")}<b class="${!mg ? "" : mg > 0 ? "up" : "down"}">${mg === null ? "–" : (mg > 0 ? "+" : "") + mg.toFixed(1) + "%"}</b><span class="muted">${mg === null ? "Not enough data yet to compare with last month." : `Monthly revenue ${mg >= 0 ? "increased" : "decreased"} by ${Math.abs(mg).toFixed(1)}% compared to the same days last month.`}</span></div>
+      <div>${bigIc("users")}<b class="${aRange && growth ? (growth > 0 ? "up" : "down") : ""}">${aRange ? (growth === null ? (newCust ? "New" : "–") : (growth > 0 ? "+" : "") + growth.toFixed(1) + "%") : totalCust}</b><span class="muted">${aRange ? (newCust ? `Total customers grew by ${growth === null ? newCust : growth.toFixed(1) + "%"} in the ${rangeName}.` : `No new customers in the ${rangeName}.`) : "Registered customers in total."}</span></div>
       <div>${bigIc("trophy")}<b>${best ? esc(best.name) : "–"}</b><span class="muted">${best ? `is the top seller with ${best.qty.toLocaleString()} orders.` : "No sales yet."}</span></div></div></section>
   </div>`;
 }
@@ -382,7 +382,7 @@ function pgChat(){
   const c = chats.find(x => x.id === selChat);
   return `<h1>Customer chat</h1><div class="chatwrap ${selChat ? "open" : ""}">
     <section class="card chatlist" id="chatlist">${chatListHtml()}</section>
-    <section class="card chatpane">${selChat ? `<div class="chathead"><button class="backbtn" data-act="closechat" aria-label="Back to conversations">←</button><b>${esc(c?.customerName || "Customer")}</b></div>
+    <section class="card chatpane">${selChat ? `<div class="chathead"><button class="backbtn" data-act="closechat" aria-label="Back to conversations">←</button><b>${esc(c?.customerName || "Customer")}</b><button class="danger" style="margin-left:auto" data-act="delchat">Delete conversation</button></div>
       <div class="msgs" id="amsgs">${bubbles(selMsgs, "admin") || '<p class="muted">No messages yet.</p>'}</div>
       <div class="cform"><input id="ain" placeholder="Type a reply…" maxlength="1000" autocomplete="off" aria-label="Reply"><button class="primary" data-act="adminsend">Send</button></div>`
       : '<p class="muted" style="margin:auto;text-align:center">Select a conversation to read and reply.</p>'}</section></div>`;
@@ -395,7 +395,7 @@ function renderChatParts(){
 function ensureCW(){
   if ($("cw")) return;
   const w = document.createElement("div"); w.id = "cw";
-  w.innerHTML = `<section class="cpanel" id="cpanel" hidden role="dialog" aria-label="Customer service chat"><header><div><b>Customer service</b><small>We usually reply within the day</small></div><button data-act="chattoggle" aria-label="Close chat">✕</button></header>
+  w.innerHTML = `<section class="cpanel" id="cpanel" hidden role="dialog" aria-label="Customer service chat"><header><div><b>Customer service</b><small>We usually reply within the day</small></div><span><button id="cdel" data-act="delmychat" aria-label="Delete conversation" title="Delete conversation">🗑</button><button data-act="chattoggle" aria-label="Close chat">✕</button></span></header>
     <div class="msgs" id="cmsgs"></div><div class="cform"><input id="cin" placeholder="Type your message…" maxlength="1000" autocomplete="off" aria-label="Message"><button class="primary" data-act="chatsend">Send</button></div></section>
     <button class="cfab" data-act="chattoggle" aria-label="Chat with customer service"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON.chat}</svg><span class="cbadge" id="cbadge" hidden></span></button>`;
   document.body.appendChild(w); renderCW();
@@ -403,7 +403,7 @@ function ensureCW(){
 function renderCW(){
   if (role !== "customer" || !$("cw")) return;
   const n = myChat?.customerUnread || 0, b = $("cbadge"); b.textContent = n; b.hidden = chatOpen || !n;
-  $("cpanel").hidden = !chatOpen;
+  $("cpanel").hidden = !chatOpen; $("cdel").hidden = !chatMsgs.length;
   const el = $("cmsgs"), bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   el.innerHTML = bubbles(chatMsgs, "customer") || '<p class="muted" style="margin:auto;text-align:center">Hi! Ask us anything about your order or our bundles.</p>';
   if (bottom) el.scrollTop = el.scrollHeight;
@@ -502,6 +502,10 @@ const ACT = {
     try { await C.sendMessage(user.uid, "customer", t, profile?.name || user.email); } catch (e) { i.value = t; throw e; } }),
   openchat: el => { selChat = el.dataset.id; selMsgs = []; threadUnsub?.(); threadUnsub = C.watchMessages(selChat, l => { selMsgs = l; renderChatParts(); }); C.markChatRead(selChat, "admin"); route(); },
   closechat: () => { threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; route(); },
+  delchat: guard(async () => { if (!selChat || !confirm("Delete this whole conversation? It will also disappear for the customer.")) return;
+    const id = selChat; await C.deleteChat(id); threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; route(); flash("Conversation deleted."); }),
+  delmychat: guard(async () => { if (!chatMsgs.length || !confirm("Delete this conversation? Customer service will no longer see it either.")) return;
+    await C.deleteChat(user.uid); flash("Conversation deleted."); }),
   adminsend: guard(async () => { const i = $("ain"), t = i.value.trim(); if (!t || !selChat) return; i.value = "";
     try { await C.sendMessage(selChat, "admin", t); } catch (e) { i.value = t; throw e; } }),
   summary: () => {
