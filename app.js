@@ -21,10 +21,14 @@ const ICON = {
   grid:'<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
   list:'<path d="M2 4h12M2 8h12M2 12h8"/>',
   cart:'<path d="M3 3h10l-1.5 7H4.5L3 3z"/><circle cx="6" cy="13" r="1"/><circle cx="11" cy="13" r="1"/>',
-  info:'<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5h.01"/>'
+  info:'<circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5h.01"/>',
+  users:'<circle cx="6" cy="5" r="2.5"/><path d="M1.5 13.5c0-2.6 2-4 4.5-4s4.5 1.4 4.5 4"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M12 9.3c1.8.2 2.8 1.4 2.8 3.4"/>',
+  trophy:'<path d="M5 2h6v4a3 3 0 01-6 0V2zM5 3.5H2.5V4A2.5 2.5 0 005 6.5M11 3.5h2.5V4A2.5 2.5 0 0111 6.5M8 9v3M5 14h6"/>',
+  chart:'<path d="M2 2v12h12M5 11V8M8 11V5M11 11V7"/>',
+  chat:'<path d="M2 3h12v8H7l-3 3v-3H2V3z"/>'
 };
 const MENU = {
-  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["bundles","Bundles","grid"],["orders","Orders","cart"],["about","About us","info"]],
+  admin: [["dashboard","Dashboard","grid"],["products","Products","list"],["bundles","Bundles","grid"],["orders","Orders","cart"],["analytics","Analytics","chart"],["chat","Chat","chat"],["about","About us","info"]],
   customer: [["order","Order","cart"],["my-orders","My Orders","list"],["about","About us","info"]]
 };
 
@@ -38,6 +42,9 @@ let cart = {}, bundleName = "", note = "";
 let bundles = [], activeDisc = null, bform = null, cartBundles = {}; // saved bundles, discount of the chosen bundle, admin bundle form
 const MODE = document.body.dataset.mode === "admin" ? "admin" : "customer"; // which page this is: index.html or admin.html
 let subs = [], dirty = false, regMode = false, authNote = "";
+let customers = [], chats = [], selChat = null, selMsgs = [], threadUnsub = null; // admin: customer accounts, chat threads, open thread
+let chatMsgs = [], myChat = null, chatOpen = false; // customer: own chat messages and thread info
+let aRange = 30, mRange = 6; // analytics: date range in days (0 = all time), months shown on the revenue chart
 
 const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
 const show = w => { $("boot").hidden = true; $("auth").hidden = w !== "auth"; $("app").hidden = w !== "app"; };
@@ -121,8 +128,8 @@ async function doRegister(){
 
 // ---------- session ----------
 async function handleUser(u){
-  subs.forEach(f => f()); subs = []; user = u;
-  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; cartBundles = {}; activeDisc = null; show("auth"); renderAuth(); return; }
+  subs.forEach(f => f()); subs = []; threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; user = u;
+  if (!u){ role = null; profile = null; products = []; orders = []; bundles = []; cart = {}; cartBundles = {}; activeDisc = null; customers = []; chats = []; chatMsgs = []; myChat = null; chatOpen = false; $("cw")?.remove(); show("auth"); renderAuth(); return; }
   try { role = (await C.isAdmin(u.uid)) ? "admin" : "customer"; if (!profile) profile = await C.getProfile(u.uid); }
   catch (e) { role = "customer"; }
   if (role !== MODE){ // keep the two logins separate: admins only on admin.html, customers only on index.html
@@ -134,8 +141,16 @@ async function handleUser(u){
     C.watchDiscount(d => { discount = d || {type:"percent", value:0}; refresh(); }),
     C.watchAbout(a => { about = a || {}; refresh(); }),
     C.watchBundles(l => { bundles = l.sort((a, b) => a.id.localeCompare(b.id)); for (const id in cartBundles) if (!bundles.find(b => b.id === id)) delete cartBundles[id]; refresh(); }),
-    role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); })
+    role === "admin" ? C.watchAllOrders(l => { orders = l; refresh(); }) : C.watchMyOrders(u.uid, l => { orders = l; refresh(); }),
+    ...(role === "admin" ? [
+      C.watchCustomers(l => { customers = l; refresh(); }),
+      C.watchChats(l => { chats = l; if (selChat && current() === "chat" && chats.find(c => c.id === selChat)?.adminUnread > 0) C.markChatRead(selChat, "admin"); refresh(); })
+    ] : [
+      C.watchMessages(u.uid, l => { chatMsgs = l; renderCW(); }),
+      C.watchChat(u.uid, c => { myChat = c; renderCW(); })
+    ])
   );
+  if (role === "customer") ensureCW();
   $("whoName").textContent = profile?.name || u.email;
   $("roleBadge").textContent = role === "admin" ? "ADMIN" : "CUSTOMER";
   show("app"); route();
@@ -145,13 +160,15 @@ async function handleUser(u){
 const current = () => { const m = MENU[role].map(x => x[0]); const r = location.hash.slice(1); return m.includes(r) ? r : m[0]; };
 function nav(){
   const pend = role === "admin" ? orders.filter(o => o.status === "Pending").length : 0, cur = current();
-  const link = ([id, label, ic]) => `<a href="#${id}" class="${cur===id?"on":""}"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[ic]}</svg>${label}${id==="orders" && pend ? `<span class="nb">${pend}</span>` : ""}</a>`;
+  const unread = role === "admin" ? chats.reduce((n, c) => n + (c.adminUnread || 0), 0) : 0;
+  const link = ([id, label, ic]) => `<a href="#${id}" class="${cur===id?"on":""}"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[ic]}</svg>${label}${id==="orders" && pend ? `<span class="nb">${pend}</span>` : ""}${id==="chat" && unread ? `<span class="nb">${unread}</span>` : ""}</a>`;
   const html = MENU[role].map(link).join("");
   $("side").innerHTML = html; $("bottom").innerHTML = html;
 }
-function route(){ if (!user) return; nav(); $("main").innerHTML = PAGES[current()](); }
+function route(){ if (!user) return; nav(); $("main").innerHTML = PAGES[current()](); if (current() === "chat" && $("amsgs")) $("amsgs").scrollTop = $("amsgs").scrollHeight; }
 function refresh(){
   if (!user || !role) return;
+  if (role === "admin" && current() === "chat" && $("chatlist")){ renderChatParts(); nav(); return; } // chat updates without redrawing the typing box
   const a = document.activeElement;
   if (a && $("main").contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)){ dirty = true; nav(); return; }
   route();
@@ -181,6 +198,9 @@ function orderCard(o, admin){
     ${o.bundleName ? `<div class="muted">Bundle: ${esc(o.bundleName)}</div>` : ""}${o.note ? `<div class="muted">Note: ${esc(o.note)}</div>` : ""}
     ${o.discount > 0 ? `<div class="sum save"><span>Discount (${esc(o.discountLabel)})</span><span>-${fmt(o.discount)}</span></div>` : ""}
     <div class="sum"><b>Total</b><b>${fmt(o.total)}</b></div>
+    ${o.status === "Cancelled" ? `<div class="cxnote">${o.cancelledBy === "customer" ? (admin ? "Cancelled by the customer" : "You cancelled this order") : "Cancelled by the store"}${o.cancelReason ? ` · Reason: ${esc(o.cancelReason)}` : ""}</div>` : ""}
+    ${!admin && o.status === "Pending" ? `<div class="acts"><button class="danger" data-act="cancelorder" data-id="${o.id}">Cancel order</button></div>` : ""}
+    ${!admin && (o.status === "Preparing" || o.status === "Ready") ? `<p class="muted" style="font-size:.85rem;margin:8px 0 0">This order is already being prepared, so it can't be cancelled here. <a href="#" data-act="chatopen">Message customer service</a></p>` : ""}
     ${admin ? `<div class="acts">${[["Preparing","Preparing"],["Ready","Ready"],["Completed","Complete"],["Cancelled","Cancel"]].map(([s, l]) => `<button data-act="status" data-id="${o.id}" data-s="${s}" ${o.status===s?"disabled":""}>${l}</button>`).join("")}<button class="danger" data-act="delorder" data-id="${o.id}">Delete</button></div>` : ""}</article>`;
 }
 const pgOrders = () => `<h1>Orders</h1>${orders.length ? sortedOrders().map(o => orderCard(o, true)).join("") : '<p class="muted">No orders yet. New pre-orders will show up here.</p>'}`;
@@ -274,7 +294,123 @@ function panelHtml(){
 const pgOrder = () => `<h1>Order</h1><div id="bundlesec">${bundleSection()}</div><div id="sbanner">${stockBanner()}</div><div class="two"><div><div class="grid" id="pgrid">${products.length ? products.map(prodCard).join("") : '<p class="muted">No products yet. Please check back soon.</p>'}</div></div><aside class="card" id="bpanel">${panelHtml()}</aside></div>`;
 const renderOrderParts = () => { if ($("pgrid")){ $("pgrid").innerHTML = products.map(prodCard).join(""); $("bpanel").innerHTML = panelHtml(); if ($("sbanner")) $("sbanner").innerHTML = stockBanner(); if ($("bundlesec")) $("bundlesec").innerHTML = bundleSection(); } };
 
-const PAGES = {dashboard: pgDashboard, products: pgProducts, bundles: pgBundles, orders: pgOrders, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
+// ---------- reports and analytics (admin) ----------
+const DAY = 864e5;
+const live = () => orders.filter(o => o.status !== "Cancelled"); // cancelled orders are never counted
+const between = (l, a, b) => l.filter(o => { const t = ts(o); return t >= a && t < b; });
+const sum = (l, f) => l.reduce((n, x) => n + f(x), 0);
+const fmtK = n => CUR + (n >= 1000 ? +(n / 1000).toFixed(1) + "K" : n);
+const pc = (c, p) => p ? (c - p) / p * 100 : null;
+const delta = (c, p) => { const v = pc(c, p); return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${Math.abs(v).toFixed(1)}%</span>`; };
+const bigIc = k => `<span class="kic"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[k]}</svg></span>`;
+// bundles sold in a list of orders: ready-made bundles by name, everything built by hand counts as "Custom bundle"
+function sold(l){
+  const m = new Map(), add = (key, name, id, qty, rev) => { const r = m.get(key) || {name, id, qty: 0, rev: 0}; r.qty += qty; r.rev += rev; m.set(key, r); };
+  for (const o of l){ let br = 0;
+    for (const b of o.bundles || []){ const rev = b.price * b.qty; br += rev; add(b.id || b.name, b.name, b.id, b.qty, rev); }
+    if ((o.items || []).some(i => !i.bundle)) add("custom", "Custom bundle", "", 1, Math.max(0, o.total - br)); }
+  return [...m.values()].sort((a, b) => b.qty - a.qty || b.rev - a.rev);
+}
+function niceStep(x){ if (x <= 0) return 100; const mag = 10 ** Math.floor(Math.log10(x)), r = x / mag; return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag; }
+function trendChart(pts){
+  const W = 600, H = 280, L = 64, R = 26, T = 28, B = 34, iw = W - L - R, ih = H - T - B;
+  const step = niceStep(Math.max(...pts.map(p => p.value), 0) / 4), max = step * 4;
+  const x = i => pts.length > 1 ? L + iw * i / (pts.length - 1) : L + iw / 2, y = v => T + ih - v / max * ih;
+  const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.value).toFixed(1)).join(" ");
+  const area = line + ` L${x(pts.length - 1).toFixed(1)} ${T + ih} L${x(0).toFixed(1)} ${T + ih} Z`;
+  const last = pts[pts.length - 1], lx = x(pts.length - 1), ly = y(last.value), tw = 120, tx = Math.min(Math.max(lx - tw / 2, 4), W - tw - 4), ty = ly - 38 < 0 ? ly + 12 : ly - 38;
+  return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly revenue trend">
+    <defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--teal);stop-opacity:.35"/><stop offset="1" style="stop-color:var(--teal);stop-opacity:.03"/></linearGradient></defs>
+    ${[0, 1, 2, 3, 4].map(i => `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(step * i)}" y2="${y(step * i)}"/><text class="ax" x="${L - 8}" y="${y(step * i) + 4}" text-anchor="end">${fmtK(step * i)}</text>`).join("")}
+    ${pts.map((p, i) => `<text class="ax" x="${x(i)}" y="${H - 10}" text-anchor="middle">${p.label}</text>`).join("")}
+    <path d="${area}" fill="url(#rg)"/><path class="ln" d="${line}"/>
+    ${pts.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.value)}" r="${i === pts.length - 1 ? 6 : 4}"><title>${esc(p.full)}: ${fmt(p.value)}</title></circle>`).join("")}
+    <g class="tip"><rect x="${tx}" y="${ty}" width="${tw}" height="26" rx="8"/><text x="${tx + tw / 2}" y="${ty + 18}" text-anchor="middle">${fmt(last.value)}</text></g></svg>`;
+}
+function pgAnalytics(){
+  const now = Date.now(), all = live(), span = aRange * DAY, start = aRange ? now - span : 0;
+  const cur = aRange ? between(all, start, Infinity) : all, prev = aRange ? between(all, start - span, start) : [];
+  const rangeName = aRange ? `last ${aRange} days` : "all time";
+  // customers
+  const born = c => c.createdAt?.toMillis?.() ?? 0, totalCust = customers.length, newCust = aRange ? customers.filter(c => born(c) >= start).length : 0;
+  // bundles
+  const top = sold(cur), best = top[0], imgOf = r => bundles.find(b => b.id === r.id)?.img;
+  // monthly revenue
+  const d0 = new Date(), ms = [];
+  for (let i = mRange - 1; i >= 0; i--){ const a = new Date(d0.getFullYear(), d0.getMonth() - i, 1), b = new Date(d0.getFullYear(), d0.getMonth() - i + 1, 1);
+    ms.push({label: a.toLocaleDateString(undefined, {month: "short"}), full: a.toLocaleDateString(undefined, {month: "long", year: "numeric"}), value: sum(between(all, +a, +b), o => o.total)}); }
+  // fair comparison: this month so far vs the same days of last month (a half-finished month would always look like a drop)
+  const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1), pm0 = new Date(d0.getFullYear(), d0.getMonth() - 1, 1);
+  const thisM = sum(between(all, +m0, Infinity), o => o.total), lastM = sum(between(all, +pm0, +pm0 + (now - +m0)), o => o.total), mg = pc(thisM, lastM);
+  // recent daily performance (last 7 days)
+  const days = [];
+  for (let i = 0; i < 7; i++){ const a = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i), b = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i + 1), l = between(all, +a, +b);
+    days.push({date: a.toLocaleDateString(undefined, {month: "short", day: "numeric", year: "numeric"}), n: l.length, rev: sum(l, o => o.total), best: sold(l)[0]?.name || "–"}); }
+  const medal = i => `<span class="medal${i < 3 ? " m" + (i + 1) : ""}">${i + 1}</span>`;
+  const growth = pc(totalCust, totalCust - newCust);
+  return `<div class="an-head"><div><h1>Reports and Analytics</h1><p class="muted" style="margin:0">Track performance. Make data-driven decisions. Cancelled orders are not counted.</p></div>
+    <div><label for="arange">Date range</label><select id="arange">${[[7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"], [0, "All time"]].map(([v, l]) => `<option value="${v}" ${aRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>
+  <div class="kpis">
+    <div class="card kpi">${bigIc("users")}<div><span class="muted">Total Customers</span><div class="kv"><b>${totalCust.toLocaleString()}</b>${aRange ? delta(totalCust, totalCust - newCust) : ""}</div><small class="muted">${aRange ? newCust + " new in the " + rangeName : "All registered customers"}</small></div></div>
+    <div class="card kpi">${bigIc("cart")}<div><span class="muted">Total Sales</span><div class="kv"><b>${cur.length.toLocaleString()}</b>${aRange ? delta(cur.length, prev.length) : ""}</div><small class="muted">${fmt(sum(cur, o => o.total))} from orders, ${rangeName}</small></div></div>
+    <div class="card kpi">${bigIc("trophy")}<div><span class="muted">Best-Selling Bundle</span><div class="kv"><b class="bn">${best ? esc(best.name) : "–"}</b></div><small class="muted">${best ? best.qty.toLocaleString() + " sold" : "No sales yet"}</small></div></div>
+  </div>
+  <div class="an-grid">
+    <section class="card"><div class="cardhead"><h2>Monthly Revenue Monitoring</h2><select id="mrange" style="width:auto" aria-label="Months shown">${[[6, "Last 6 months"], [12, "Last 12 months"]].map(([v, l]) => `<option value="${v}" ${mRange === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div class="kv"><b class="big">${fmt(thisM)}</b>${delta(thisM, lastM)}</div><small class="muted">${ms[ms.length - 1].full} so far, vs the same days last month</small>
+      <div class="chartbox">${trendChart(ms)}</div></section>
+    <section class="card"><div class="cardhead"><h2>Top Performing Bundles</h2><small class="muted">${rangeName}</small></div>
+      ${top.length ? top.slice(0, 10).map((r, i) => `<div class="rk">${medal(i)}<span class="rthumb">${imgOf(r) ? `<img src="${esc(imgOf(r))}" alt="">` : "🎁"}</span><b class="rn">${esc(r.name)}</b><span class="muted rs">${r.qty.toLocaleString()} sold</span><b class="rr">${fmt(r.rev)}</b></div>`).join("") : '<p class="muted">No bundle sales in this period yet.</p>'}</section>
+  </div>
+  <div class="an-grid b">
+    <section class="card"><h2>Recent Daily Performance</h2><div class="tscroll"><table class="tbl"><thead><tr><th>Date</th><th class="r">Total Sales</th><th class="r">Revenue</th><th>Best-Selling Bundle</th></tr></thead>
+      <tbody>${days.map(d => `<tr><td>${d.date}</td><td class="r">${d.n}</td><td class="r">${fmt(d.rev)}</td><td>${esc(d.best)}</td></tr>`).join("")}</tbody></table></div></section>
+    <section class="card"><h2>Key Insights</h2><div class="ins">
+      <div>${bigIc("chart")}<b class="${mg === null ? "" : mg >= 0 ? "up" : "down"}">${mg === null ? "–" : (mg >= 0 ? "+" : "") + mg.toFixed(1) + "%"}</b><span class="muted">${mg === null ? "Not enough data yet to compare with last month." : `Monthly revenue ${mg >= 0 ? "increased" : "decreased"} by ${Math.abs(mg).toFixed(1)}% compared to the same days last month.`}</span></div>
+      <div>${bigIc("users")}<b class="${aRange && growth !== null ? (growth >= 0 ? "up" : "down") : ""}">${aRange ? (growth === null ? (newCust ? "New" : "–") : (growth >= 0 ? "+" : "") + growth.toFixed(1) + "%") : totalCust}</b><span class="muted">${aRange ? (newCust ? `Total customers grew by ${growth === null ? newCust : growth.toFixed(1) + "%"} in the ${rangeName}.` : `No new customers in the ${rangeName}.`) : "Registered customers in total."}</span></div>
+      <div>${bigIc("trophy")}<b>${best ? esc(best.name) : "–"}</b><span class="muted">${best ? `is the top seller with ${best.qty.toLocaleString()} orders.` : "No sales yet."}</span></div></div></section>
+  </div>`;
+}
+
+// ---------- customer service chat ----------
+const tsOf = x => x?.toMillis?.() ?? Date.now();
+const timeOf = m => new Date(ts(m)).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+const bubbles = (l, mine) => [...l].sort((a, b) => ts(a) - ts(b)).map(m => `<div class="bub ${m.from === mine ? "me" : "them"}">${esc(m.text)}<small>${timeOf(m)}</small></div>`).join("");
+const sortedChats = () => [...chats].sort((a, b) => tsOf(b.lastAt) - tsOf(a.lastAt));
+const chatListHtml = () => sortedChats().length ? sortedChats().map(c => `<button class="thread ${c.id === selChat ? "on" : ""}" data-act="openchat" data-id="${esc(c.id)}"><span class="tn"><span>${esc(c.customerName || "Customer")}</span>${c.adminUnread > 0 ? `<span class="nb">${c.adminUnread}</span>` : `<small>${new Date(tsOf(c.lastAt)).toLocaleDateString([], {month: "short", day: "numeric"})}</small>`}</span><small>${c.lastFrom === "admin" ? "You: " : ""}${esc(c.lastMessage || "")}</small></button>`).join("") : '<p class="muted" style="padding:10px">No conversations yet. When a customer messages you, it shows up here.</p>';
+function pgChat(){
+  const c = chats.find(x => x.id === selChat);
+  return `<h1>Customer chat</h1><div class="chatwrap ${selChat ? "open" : ""}">
+    <section class="card chatlist" id="chatlist">${chatListHtml()}</section>
+    <section class="card chatpane">${selChat ? `<div class="chathead"><button class="backbtn" data-act="closechat" aria-label="Back to conversations">←</button><b>${esc(c?.customerName || "Customer")}</b></div>
+      <div class="msgs" id="amsgs">${bubbles(selMsgs, "admin") || '<p class="muted">No messages yet.</p>'}</div>
+      <div class="cform"><input id="ain" placeholder="Type a reply…" maxlength="1000" autocomplete="off" aria-label="Reply"><button class="primary" data-act="adminsend">Send</button></div>`
+      : '<p class="muted" style="margin:auto;text-align:center">Select a conversation to read and reply.</p>'}</section></div>`;
+}
+function renderChatParts(){
+  if ($("chatlist")) $("chatlist").innerHTML = chatListHtml();
+  const el = $("amsgs"); if (el){ const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80; el.innerHTML = bubbles(selMsgs, "admin") || '<p class="muted">No messages yet.</p>'; if (bottom) el.scrollTop = el.scrollHeight; }
+}
+// customer chat button + window (lives outside the page so it never resets while typing)
+function ensureCW(){
+  if ($("cw")) return;
+  const w = document.createElement("div"); w.id = "cw";
+  w.innerHTML = `<section class="cpanel" id="cpanel" hidden role="dialog" aria-label="Customer service chat"><header><div><b>Customer service</b><small>We usually reply within the day</small></div><button data-act="chattoggle" aria-label="Close chat">✕</button></header>
+    <div class="msgs" id="cmsgs"></div><div class="cform"><input id="cin" placeholder="Type your message…" maxlength="1000" autocomplete="off" aria-label="Message"><button class="primary" data-act="chatsend">Send</button></div></section>
+    <button class="cfab" data-act="chattoggle" aria-label="Chat with customer service"><svg viewBox="0 0 16 16" aria-hidden="true">${ICON.chat}</svg><span class="cbadge" id="cbadge" hidden></span></button>`;
+  document.body.appendChild(w); renderCW();
+}
+function renderCW(){
+  if (role !== "customer" || !$("cw")) return;
+  const n = myChat?.customerUnread || 0, b = $("cbadge"); b.textContent = n; b.hidden = chatOpen || !n;
+  $("cpanel").hidden = !chatOpen;
+  const el = $("cmsgs"), bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  el.innerHTML = bubbles(chatMsgs, "customer") || '<p class="muted" style="margin:auto;text-align:center">Hi! Ask us anything about your order or our bundles.</p>';
+  if (bottom) el.scrollTop = el.scrollHeight;
+  if (chatOpen && n > 0) C.markChatRead(user.uid, "customer");
+}
+
+const PAGES = {dashboard: pgDashboard, products: pgProducts, bundles: pgBundles, orders: pgOrders, analytics: pgAnalytics, chat: pgChat, about: pgAbout, order: pgOrder, "my-orders": pgMyOrders};
 
 // ---------- actions ----------
 function toDataUrl(file, max = 320){
@@ -292,6 +428,7 @@ const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { consol
 
 async function setStatus(o, s){
   const patch = {status: s};
+  if (s === "Cancelled") patch.cancelledBy = "admin";
   const tot = {}; for (const i of o.items || []) tot[i.id] = (tot[i.id] || 0) + i.qty;
   if (s === "Ready" && !o.deducted){ for (const id in tot){ const p = prod(id); if (p) await C.setProduct({...p, stock: Math.max(0, p.stock - tot[id])}); } patch.deducted = true; }
   if (s === "Cancelled" && o.deducted){ for (const id in tot){ const p = prod(id); if (p) await C.setProduct({...p, stock: p.stock + tot[id]}); } patch.deducted = false; }
@@ -342,7 +479,31 @@ async function copyText(txt){
   catch (e) { const ta = document.createElement("textarea"); ta.value = txt; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (_) {} ta.remove(); return ok; }
 }
 
+const CANCEL_REASONS = ["Changed my mind", "Ordered by mistake", "Found a better price", "Taking too long", "Other"];
 const ACT = {
+  cancelorder: el => {
+    const o = orders.find(x => x.id === el.dataset.id); if (!o || o.status !== "Pending"){ flash("This order can no longer be cancelled."); return; }
+    const m = document.createElement("div"); m.id = "cxModal"; m.className = "modal";
+    m.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" aria-label="Cancel order"><h2>Cancel this order?</h2><p class="muted" style="margin-top:0">You can only cancel while the order is still Pending. This cannot be undone.</p>
+      <label for="cxr">Reason</label><select id="cxr">${CANCEL_REASONS.map(r => `<option>${r}</option>`).join("")}</select>
+      <div style="margin-top:10px"><label for="cxn">Anything to add? (optional)</label><textarea id="cxn" maxlength="200"></textarea></div>
+      <div class="acts"><button class="danger" data-act="docancel" data-id="${esc(o.id)}">Yes, cancel order</button><button data-act="closecx">Keep order</button></div></div>`;
+    document.body.appendChild(m);
+  },
+  closecx: () => $("cxModal")?.remove(),
+  docancel: guard(async el => {
+    const o = orders.find(x => x.id === el.dataset.id), r = $("cxr").value, n = $("cxn").value.trim();
+    if (!o || o.status !== "Pending"){ $("cxModal")?.remove(); flash("This order can no longer be cancelled."); return; }
+    await C.cancelOrder(o.id, n ? r + " - " + n : r); $("cxModal")?.remove(); flash("Your order was cancelled.");
+  }),
+  chattoggle: () => { chatOpen = !chatOpen; renderCW(); if (chatOpen){ $("cmsgs").scrollTop = $("cmsgs").scrollHeight; $("cin").focus(); } },
+  chatopen: () => { chatOpen = true; renderCW(); $("cmsgs").scrollTop = $("cmsgs").scrollHeight; $("cin").focus(); },
+  chatsend: guard(async () => { const i = $("cin"), t = i.value.trim(); if (!t) return; i.value = "";
+    try { await C.sendMessage(user.uid, "customer", t, profile?.name || user.email); } catch (e) { i.value = t; throw e; } }),
+  openchat: el => { selChat = el.dataset.id; selMsgs = []; threadUnsub?.(); threadUnsub = C.watchMessages(selChat, l => { selMsgs = l; renderChatParts(); }); C.markChatRead(selChat, "admin"); route(); },
+  closechat: () => { threadUnsub?.(); threadUnsub = null; selChat = null; selMsgs = []; route(); },
+  adminsend: guard(async () => { const i = $("ain"), t = i.value.trim(); if (!t || !selChat) return; i.value = "";
+    try { await C.sendMessage(selChat, "admin", t); } catch (e) { i.value = t; throw e; } }),
   summary: () => {
     const sc = stockCheck();
     if (!totals().count){ flash("Add at least one product first."); return; }
@@ -405,9 +566,12 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => { const t = e.target; if (bform){ if (t.id === "bfn") bform.name = t.value; if (t.id === "bft") bform.type = t.value; if (t.id === "bfv") bform.value = Math.max(0, parseFloat(t.value) || 0); if (t.dataset.bq) bform.qty[t.dataset.bq] = Math.max(0, parseInt(t.value, 10) || 0); }
   if (e.target.id === "bn") bundleName = e.target.value; if (e.target.id === "note") note = e.target.value; });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && !regMode && ["lemail", "lpw"].includes(e.target.id)) doLogin(); });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && !regMode && ["lemail", "lpw"].includes(e.target.id)) doLogin();
+  if (e.key === "Enter" && e.target.id === "cin") ACT.chatsend(); if (e.key === "Enter" && e.target.id === "ain") ACT.adminsend(); });
 document.addEventListener("change", guard(async e => {
   const t = e.target;
+  if (t.id === "arange"){ aRange = +t.value; route(); return; }
+  if (t.id === "mrange"){ mRange = +t.value; route(); return; }
   if (t.dataset.f){ const p = prod(t.dataset.id); let v = t.value;
     if (t.dataset.f === "price") v = Math.max(0, parseFloat(v) || 0); else if (t.dataset.f === "stock") v = Math.max(0, parseInt(v, 10) || 0); else v = v.trim() || p.name;
     await C.setProduct({...p, [t.dataset.f]: v}); }

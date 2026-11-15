@@ -41,3 +41,29 @@ STEP 3 - Put it online (your existing GitHub repo)
 
 Plain logo: when you send the new logo, it replaces the text "Bundle Wise"
 in the header and the icons in the images folder.
+
+
+NEW FEATURES (added later)
+=========================
+IMPORTANT: paste the new firestore.rules into Firebase again (Firestore Database >
+Rules > delete everything > paste > Publish). Cancel order and Chat will NOT work
+until you do this.
+
+1. Cancel order (customer)
+   My Orders > a Pending order has a "Cancel order" button. The customer picks a
+   reason. Once the admin starts Preparing the order, it can no longer be cancelled
+   by the customer (they are pointed to the chat instead). The admin sees
+   "Cancelled by the customer" and the reason on the order.
+
+2. Customer service chat
+   Customers get a round chat button (bottom-right). The admin gets a new
+   "Chat" page: conversations on the left, messages on the right, with a red
+   number for unread messages. Messages arrive live, no refresh needed.
+
+3. Reports and Analytics (admin only, new "Analytics" menu)
+   Total Customers, Total Sales, Best-Selling Bundle, Monthly Revenue Monitoring
+   with trend graph, Top Performing Bundles (rank 1-10), Recent Daily Performance
+   and Key Insights. Cancelled orders are not counted. Change the date range at
+   the top right.
+   Note: customer growth uses the sign-up date. Accounts created before this
+   update have no sign-up date, so they count as "existing" customers.
