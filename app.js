@@ -46,7 +46,7 @@ let subs = [], dirty = false, regMode = false, authNote = "";
 let categories = [], catFilter = "all"; // product categories (admin manages them, customers browse them)
 let customers = [], chats = [], selChat = null, selMsgs = [], threadUnsub = null; // admin: customer accounts, chat threads, open thread
 let chatMsgs = [], myChat = null, chatOpen = false; // customer: own chat messages and thread info
-let aRange = 30; // analytics: date range in days (0 = all time). The monthly chart follows it.
+let aRange = 30; // analytics date range: 7, 30 or 365 (see RANGES). The revenue chart follows it.
 
 const flash = t => { const el = $("toast"); el.textContent = t; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 2800); };
 const show = w => { $("boot").hidden = true; $("auth").hidden = w !== "auth"; $("app").hidden = w !== "app"; };
@@ -218,8 +218,9 @@ const pgMyOrders = () => `<h1>My Orders</h1>${orders.length ? sortedOrders().map
 
 function pgAbout(){
   const f = [["owner","Owner"],["contact","Contact #"],["facebookAccount","Facebook account"],["facebookPage","Facebook page"],["address","Address"]];
-  if (role !== "admin") return `<h1>About us</h1><section class="card about"><dl>${f.map(([k, l]) => `<dt>${l}</dt><dd>${esc(about[k]) || "—"}</dd>`).join("")}</dl></section>`;
+  if (role !== "admin") return `<h1>About us</h1><section class="card about">${about.description ? `<p class="adesc">${esc(about.description)}</p>` : ""}<dl>${f.map(([k, l]) => `<dt>${l}</dt><dd>${esc(about[k]) || "—"}</dd>`).join("")}</dl></section>`;
   return `<h1>About us</h1><section class="card stack"><p class="muted">Customers see this page. Edit it here.</p>
+    <div><label for="ab_description">Description (shown first)</label><textarea id="ab_description" rows="5" maxlength="1000" placeholder="Tell customers about your shop and what makes your bundles special.">${esc(about.description)}</textarea></div>
     ${f.map(([k, l]) => `<div><label for="ab_${k}">${l}</label><input id="ab_${k}" value="${esc(about[k])}"></div>`).join("")}
     <button class="primary" data-act="saveabout">Save</button></section>`;
 }
@@ -334,9 +335,11 @@ const DAY = 864e5, RANGES = [[7, "1 week"], [30, "1 month"], [365, "12 months"]]
 const live = () => orders.filter(o => o.status !== "Cancelled"); // cancelled orders are never counted
 const between = (l, a, b) => l.filter(o => { const t = ts(o); return t >= a && t < b; });
 const sum = (l, f) => l.reduce((n, x) => n + f(x), 0);
-const fmtK = n => CUR + (n >= 1000 ? +(n / 1000).toFixed(1) + "K" : n);
+const fmtK = n => CUR + (n >= 1e12 ? +(n / 1e12).toFixed(1) + "T" : n >= 1e9 ? +(n / 1e9).toFixed(1) + "B" : n >= 1e6 ? +(n / 1e6).toFixed(1) + "M" : n >= 1e3 ? +(n / 1e3).toFixed(1) + "K" : +n.toFixed(0));
 const pc = (c, p) => p ? (c - p) / p * 100 : null;
-const delta = (c, p) => { const v = pc(c, p); if (v === 0) return '<span class="dl">0.0%</span>'; return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${Math.abs(v).toFixed(1)}%</span>`; };
+const pf = v => Math.abs(v) > 999 ? ">999" : Math.abs(v).toFixed(1); // keep huge growth numbers from overflowing
+
+const delta = (c, p) => { const v = pc(c, p); if (v === 0) return '<span class="dl">0.0%</span>'; return v === null ? (c ? '<span class="dl up">New</span>' : '<span class="dl">–</span>') : `<span class="dl ${v >= 0 ? "up" : "down"}">${v >= 0 ? "↑" : "↓"} ${pf(v)}%</span>`; };
 const bigIc = k => `<span class="kic"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true">${ICON[k]}</svg></span>`;
 // bundles sold in a list of orders: only the bundles the admin created (items picked by hand are not counted)
 function sold(l){
@@ -349,34 +352,39 @@ function sold(l){
 function niceStep(x){ if (x <= 0) return 100; const mag = 10 ** Math.floor(Math.log10(x)), r = x / mag; return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag; }
 function trendChart(pts){
   const W = 600, H = 280, L = 64, R = 26, T = 28, B = 34, iw = W - L - R, ih = H - T - B;
-  const step = niceStep(Math.max(...pts.map(p => p.value), 0) / 4), max = step * 4;
+  const step = niceStep(Math.max(...pts.map(p => p.value), 0) / 4), max = step * 4, every = pts.length > 14 ? 5 : 1; // on long ranges label every 5th day
   const x = i => pts.length > 1 ? L + iw * i / (pts.length - 1) : L + iw / 2, y = v => T + ih - v / max * ih;
   const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.value).toFixed(1)).join(" ");
   const area = line + ` L${x(pts.length - 1).toFixed(1)} ${T + ih} L${x(0).toFixed(1)} ${T + ih} Z`;
-  const last = pts[pts.length - 1], lx = x(pts.length - 1), ly = y(last.value), tw = 120, tx = Math.min(Math.max(lx - tw / 2, 4), W - tw - 4), ty = ly - 38 < 0 ? ly + 12 : ly - 38;
-  return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly revenue trend">
+  const last = pts[pts.length - 1], lx = x(pts.length - 1), ly = y(last.value), tw = Math.max(110, fmt(last.value).length * 9.5 + 24), tx = Math.min(Math.max(lx - tw / 2, 4), W - tw - 4), ty = ly - 38 < 0 ? ly + 12 : ly - 38;
+  return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Revenue trend">
     <defs><linearGradient id="rg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--teal);stop-opacity:.35"/><stop offset="1" style="stop-color:var(--teal);stop-opacity:.03"/></linearGradient></defs>
     ${[0, 1, 2, 3, 4].map(i => `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(step * i)}" y2="${y(step * i)}"/><text class="ax" x="${L - 8}" y="${y(step * i) + 4}" text-anchor="end">${fmtK(step * i)}</text>`).join("")}
-    ${pts.map((p, i) => `<text class="ax" x="${x(i)}" y="${H - 10}" text-anchor="middle">${p.label}</text>`).join("")}
+    ${pts.map((p, i) => (pts.length - 1 - i) % every === 0 ? `<text class="ax" x="${x(i)}" y="${H - 10}" text-anchor="middle">${p.label}</text>` : "").join("")}
     <path d="${area}" fill="url(#rg)"/><path class="ln" d="${line}"/>
-    ${pts.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.value)}" r="${i === pts.length - 1 ? 6 : 4}"><title>${esc(p.full)}: ${fmt(p.value)}</title></circle>`).join("")}
+    ${pts.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.value)}" r="${i === pts.length - 1 ? 6 : pts.length > 14 ? 3 : 4}"><title>${esc(p.full)}: ${fmt(p.value)}</title></circle>`).join("")}
     <g class="tip"><rect x="${tx}" y="${ty}" width="${tw}" height="26" rx="8"/><text x="${tx + tw / 2}" y="${ty + 18}" text-anchor="middle">${fmt(last.value)}</text></g></svg>`;
 }
 function pgAnalytics(){
-  const now = Date.now(), all = live(), span = aRange * DAY, start = aRange ? now - span : 0;
-  const cur = aRange ? between(all, start, Infinity) : all, prev = aRange ? between(all, start - span, start) : [];
-  const rangeName = aRange ? "last " + RANGES.find(r => r[0] === aRange)[1] : "all time";
+  const d0 = new Date(), all = live(), year = aRange >= 365;
+  // the window is whole calendar days (or whole months for 12 months), compared with the same-length window before it
+  const start = year ? +new Date(d0.getFullYear(), d0.getMonth() - 11, 1) : +new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - (aRange - 1));
+  const prevStart = year ? +new Date(d0.getFullYear(), d0.getMonth() - 23, 1) : +new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - (2 * aRange - 1));
+  const cur = between(all, start, Infinity), prev = between(all, prevStart, start), lbl = RANGES.find(r => r[0] === aRange)[1];
+  const rangeName = "last " + lbl;
   // customers
   const born = c => c.createdAt?.toMillis?.() ?? 0, totalCust = customers.length, newCust = aRange ? customers.filter(c => born(c) >= start).length : 0;
   // bundles
   const top = sold(cur), best = top[0], imgOf = r => bundles.find(b => b.id === r.id)?.img;
-  // monthly revenue
-  const d0 = new Date(), ms = [], mRange = !aRange || aRange >= 365 ? 12 : aRange >= 30 ? 6 : 3; // months shown follow the date range
-  for (let i = mRange - 1; i >= 0; i--){ const a = new Date(d0.getFullYear(), d0.getMonth() - i, 1), b = new Date(d0.getFullYear(), d0.getMonth() - i + 1, 1);
-    ms.push({label: a.toLocaleDateString(undefined, {month: "short"}), full: a.toLocaleDateString(undefined, {month: "long", year: "numeric"}), value: sum(between(all, +a, +b), o => o.total)}); }
-  // fair comparison: this month so far vs the same days of last month (a half-finished month would always look like a drop)
-  const m0 = new Date(d0.getFullYear(), d0.getMonth(), 1), pm0 = new Date(d0.getFullYear(), d0.getMonth() - 1, 1);
-  const thisM = sum(between(all, +m0, Infinity), o => o.total), lastM = sum(between(all, +pm0, +pm0 + (now - +m0)), o => o.total), mg = pc(thisM, lastM);
+  // revenue trend follows the date range: one dot per day (1 week, 1 month) or per month (12 months)
+  const pts = [], revNow = sum(cur, o => o.total), revPrev = sum(prev, o => o.total), mg = pc(revNow, revPrev);
+  if (year){
+    for (let i = 11; i >= 0; i--){ const a = new Date(d0.getFullYear(), d0.getMonth() - i, 1), b = new Date(d0.getFullYear(), d0.getMonth() - i + 1, 1);
+      pts.push({label: a.toLocaleDateString(undefined, {month: "short"}), full: a.toLocaleDateString(undefined, {month: "long", year: "numeric"}), value: sum(between(all, +a, +b), o => o.total)}); }
+  } else {
+    for (let i = aRange - 1; i >= 0; i--){ const a = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i), b = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i + 1);
+      pts.push({label: a.toLocaleDateString(undefined, aRange === 7 ? {weekday: "short"} : {month: "short", day: "numeric"}), full: a.toLocaleDateString(undefined, {month: "long", day: "numeric", year: "numeric"}), value: sum(between(all, +a, +b), o => o.total)}); }
+  }
   // recent daily performance (last 7 days)
   const days = [];
   for (let i = 0; i < 7; i++){ const a = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i), b = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - i + 1), l = between(all, +a, +b);
@@ -391,9 +399,9 @@ function pgAnalytics(){
     <div class="card kpi">${bigIc("trophy")}<div><span class="muted">Best-Selling Bundle</span><div class="kv"><b class="bn">${best ? esc(best.name) : "–"}</b></div><small class="muted">${best ? best.qty.toLocaleString() + " sold" : "No sales yet"}</small></div></div>
   </div>
   <div class="an-grid">
-    <section class="card"><div class="cardhead"><h2>Monthly Revenue Monitoring</h2><small class="muted">Last ${mRange} months</small></div>
-      <div class="kv"><b class="big">${fmt(thisM)}</b>${delta(thisM, lastM)}</div><small class="muted">${ms[ms.length - 1].full} so far, vs the same days last month</small>
-      <div class="chartbox">${trendChart(ms)}</div></section>
+    <section class="card"><div class="cardhead"><h2>Monthly Revenue Monitoring</h2><small class="muted">${rangeName}</small></div>
+      <div class="kv"><b class="big">${fmt(revNow)}</b>${delta(revNow, revPrev)}</div><small class="muted">Revenue for the ${rangeName}, compared with the ${lbl} before</small>
+      <div class="chartbox">${trendChart(pts)}</div></section>
     <section class="card"><div class="cardhead"><h2>Top Performing Bundles</h2><small class="muted">${rangeName}</small></div>
       ${top.length ? top.slice(0, 10).map((r, i) => `<div class="rk">${medal(i)}<span class="rthumb">${imgOf(r) ? `<img src="${esc(imgOf(r))}" alt="">` : "🎁"}</span><b class="rn">${esc(r.name)}</b><span class="muted rs">${r.qty.toLocaleString()} sold</span><b class="rr">${fmt(r.rev)}</b></div>`).join("") : '<p class="muted">No bundle sales in this period yet.</p>'}</section>
   </div>
@@ -401,8 +409,8 @@ function pgAnalytics(){
     <section class="card"><h2>Recent Daily Performance</h2><div class="tscroll"><table class="tbl"><thead><tr><th>Date</th><th class="r">Total Sales</th><th class="r">Revenue</th><th>Best-Selling Bundle</th></tr></thead>
       <tbody>${days.map(d => `<tr><td>${d.date}</td><td class="r">${d.n}</td><td class="r">${fmt(d.rev)}</td><td>${esc(d.best)}</td></tr>`).join("")}</tbody></table></div></section>
     <section class="card"><h2>Key Insights</h2><div class="ins">
-      <div>${bigIc("chart")}<b class="${!mg ? "" : mg > 0 ? "up" : "down"}">${mg === null ? "–" : (mg > 0 ? "+" : "") + mg.toFixed(1) + "%"}</b><span class="muted">${mg === null ? "Not enough data yet to compare with last month." : `Monthly revenue ${mg >= 0 ? "increased" : "decreased"} by ${Math.abs(mg).toFixed(1)}% compared to the same days last month.`}</span></div>
-      <div>${bigIc("users")}<b class="${aRange && growth ? (growth > 0 ? "up" : "down") : ""}">${aRange ? (growth === null ? (newCust ? "New" : "–") : (growth > 0 ? "+" : "") + growth.toFixed(1) + "%") : totalCust}</b><span class="muted">${aRange ? (newCust ? `Total customers grew by ${growth === null ? newCust : growth.toFixed(1) + "%"} in the ${rangeName}.` : `No new customers in the ${rangeName}.`) : "Registered customers in total."}</span></div>
+      <div>${bigIc("chart")}<b class="${!mg ? "" : mg > 0 ? "up" : "down"}">${mg === null ? "–" : (mg > 0 ? "+" : mg < 0 ? "-" : "") + pf(mg) + "%"}</b><span class="muted">${mg === null ? "Not enough data yet to compare with the previous period." : `Revenue ${mg >= 0 ? "increased" : "decreased"} by ${pf(mg)}% compared to the ${lbl} before.`}</span></div>
+      <div>${bigIc("users")}<b class="${aRange && growth ? (growth > 0 ? "up" : "down") : ""}">${aRange ? (growth === null ? (newCust ? "New" : "–") : (growth > 0 ? "+" : growth < 0 ? "-" : "") + pf(growth) + "%") : totalCust}</b><span class="muted">${aRange ? (newCust ? `Total customers grew by ${growth === null ? newCust : pf(growth) + "%"} in the ${rangeName}.` : `No new customers in the ${rangeName}.`) : "Registered customers in total."}</span></div>
       <div>${bigIc("trophy")}<b>${best ? esc(best.name) : "–"}</b><span class="muted">${best ? `is the top seller with ${best.qty.toLocaleString()} orders.` : "No sales yet."}</span></div></div></section>
   </div>`;
 }
@@ -614,7 +622,7 @@ const ACT = {
     await C.setDiscount({type, value}); flash("Discount saved.");
   }),
   saveabout: guard(async () => {
-    const o = {}; for (const k of ["owner","contact","facebookAccount","facebookPage","address"]) o[k] = $("ab_" + k).value.trim();
+    const o = {description: $("ab_description").value.trim()}; for (const k of ["owner","contact","facebookAccount","facebookPage","address"]) o[k] = $("ab_" + k).value.trim();
     await C.setAbout(o); flash("Saved.");
   })
 };
